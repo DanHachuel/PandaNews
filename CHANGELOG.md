@@ -8,6 +8,7 @@ Todas as versões publicadas são registradas aqui antes do publish (regra em AG
 - **Migração automática**: runtimes de instalações anteriores (cache do npx ou layout antigo na pasta do pacote) são localizados e reaproveitados em vez de baixados de novo (`PANDANEWS_SKIP_MIGRATE=1` força instalação limpa)
 - **Fingerprint de dependências** (requirements.txt + versão do Python): o pip só roda quando os requisitos mudam
 - Reinstalação do Python apenas quando a versão do runtime muda (limpeza automática do antigo)
+- Workflow: passo `npm ci` antes do smoke test — o checkout do CI não tem `node_modules` e o launcher (que importa `fs-extra`) falhava com ERR_MODULE_NOT_FOUND
 
 ## 0.1.02 (2026-10-23)
 
