@@ -1,8 +1,9 @@
-// Inicia o PandaNews: backend FastAPI (127.0.0.1:8000) + UI (127.0.0.1:3030).
+// Inicia o PandaNews: backend FastAPI (127.0.0.1:8000) + UI (127.0.0.1:4030+).
 //
 // Fluxo de um único comando (padrão Thunderbolt): se o runtime não estiver
 // provisionado, executa o install completo (Python portátil + dependências)
-// antes de subir os servidores. Ao final, abre o navegador.
+// antes de subir os servidores. A UI começa em PANDANEWS_UI_PORT (padrão 4030)
+// e, se a porta estiver ocupada, tenta automaticamente a seguinte (4031, ...).
 import { existsSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -10,7 +11,8 @@ import { join, extname } from 'node:path';
 import { resolveHome, runInstall, PKG_ROOT } from './install.js';
 
 const BACKEND_PORT = Number(process.env.PANDANEWS_API_PORT || 8000);
-const UI_PORT = Number(process.env.PANDANEWS_UI_PORT || 3030);
+const UI_PORT_BASE = Number(process.env.PANDANEWS_UI_PORT || 4030);
+const UI_PORT_MAX_TRIES = 20;
 
 function venvBin(home) {
   return process.platform === 'win32'
@@ -43,9 +45,11 @@ function placeholderPage() {
 </html>`;
 }
 
-function serveUi(onReady) {
+let uiServer = null;
+
+function createUiServer() {
   const distDir = join(PKG_ROOT, 'frontend', 'dist');
-  const server = createServer((req, res) => {
+  return createServer((req, res) => {
     const url = req.url.split('?')[0];
     const filePath = join(distDir, url === '/' ? 'index.html' : url.slice(1));
     if (!existsSync(filePath)) {
@@ -56,16 +60,30 @@ function serveUi(onReady) {
     res.writeHead(200, { 'Content-Type': MIME[extname(filePath)] || 'application/octet-stream' });
     res.end(readFileSync(filePath));
   });
-  server.on('error', (err) => {
+}
+
+function listenUi(port, attempt) {
+  if (attempt > UI_PORT_MAX_TRIES) {
+    console.error(`Nenhuma porta livre entre ${UI_PORT_BASE} e ${UI_PORT_BASE + UI_PORT_MAX_TRIES - 1}.`);
+    console.error('Encerre algum processo que as ocupe ou defina PANDANEWS_UI_PORT.');
+    process.exit(1);
+  }
+  const server = createUiServer();
+  server.once('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
-      console.error(`A porta ${UI_PORT} já está em uso. Encerre o processo que a ocupa ou defina PANDANEWS_UI_PORT.`);
+      console.log(`Porta ${port} ocupada — tentando ${port + 1}...`);
+      listenUi(port + 1, attempt + 1);
     } else {
       console.error(`Erro no servidor de UI: ${err && err.message}`);
+      process.exit(1);
     }
-    process.exit(1);
   });
-  server.listen(UI_PORT, '127.0.0.1', onReady);
-  return server;
+  server.listen(port, '127.0.0.1', () => {
+    uiServer = server;
+    console.log(`PandaNews ativo em http://127.0.0.1:${port}`);
+    console.log('Pressione Ctrl+C para encerrar.');
+    openBrowser(`http://127.0.0.1:${port}`);
+  });
 }
 
 async function openBrowser(url) {
@@ -103,14 +121,10 @@ export async function runStart() {
     }
   });
 
-  const server = serveUi(() => {
-    console.log(`PandaNews ativo em http://127.0.0.1:${UI_PORT}`);
-    console.log('Pressione Ctrl+C para encerrar.');
-    openBrowser(`http://127.0.0.1:${UI_PORT}`);
-  });
+  listenUi(UI_PORT_BASE, 1);
 
   process.on('exit', () => {
-    server.close();
+    if (uiServer) uiServer.close();
     uvicorn.kill();
   });
   process.on('SIGINT', () => process.exit(0));

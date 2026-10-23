@@ -34,9 +34,9 @@ npx --yes @danhachuel/pandanews install
 
 O runtime fica em `.runtime/` na raiz do pacote (sobrescreva com a variável de ambiente `PANDANEWS_HOME`).
 
-## Status (versão 0.1.01)
+## Status (versão 0.1.02)
 
-- `npx @danhachuel/pandanews` instala tudo junto (Python portátil + dependências + banco local) e sobe o backend em 127.0.0.1:8000 com página em 127.0.0.1:3030
+- `npx @danhachuel/pandanews` instala tudo junto (Python portátil + dependências + banco local) e sobe o backend em 127.0.0.1:8000 com página em 127.0.0.1:4030 — se a porta estiver ocupada, usa a seguinte automaticamente (4031, 4032, ...)
 - A UI React completa (Dashboard, Blogs, Notícias, Imagens, Automação, Configurações) e o pipeline de notícias chegam nas próximas versões (Fases 1 a 3 do plano — ver `CHANGELOG.md`)
 
 ## Regras do projeto

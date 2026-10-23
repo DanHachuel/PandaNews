@@ -2,6 +2,12 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.1.02 (2026-10-23)
+
+- Porta padrão da UI alterada de 3030 para **4030** (sobrescrevível via `PANDANEWS_UI_PORT`)
+- Fallback automático de porta: se 4030 estiver ocupada, o PandaNews tenta a seguinte (4031, 4032, ...) em até 20 tentativas, com mensagem clara se nenhuma estiver livre
+- CORS do backend passa a aceitar localhost/127.0.0.1 em qualquer porta, acompanhando a porta dinâmica da UI
+
 ## 0.1.01 (2026-10-23)
 
 - README reescrito para o fluxo de um único comando via npx (padrão Thunderbolt): `npx @danhachuel/pandanews` instala tudo junto e sobe o app; removidas as instruções manuais de desenvolvimento (pip, uvicorn, npm)
