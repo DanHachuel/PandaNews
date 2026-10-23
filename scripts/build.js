@@ -1,6 +1,6 @@
 // Compila o frontend de desenvolvimento (frontend/ -> frontend/dist).
 // A UI React + Vite + Tailwind é inicializada na Fase 2 do plano.
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -16,10 +16,19 @@ export async function runBuild() {
   }
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   console.log('Instalando dependências do frontend...');
-  const install = spawnSync(npmCmd, ['install'], { cwd: frontendDir, stdio: 'inherit' });
+  // shell: true — obrigatório para .cmd no Windows (Node >= 18)
+  const install = spawnSync(npmCmd, ['install'], { cwd: frontendDir, stdio: 'inherit', shell: true });
   if (install.status !== 0) throw new Error('Falha ao instalar dependências do frontend.');
   console.log('Compilando o frontend...');
-  const build = spawnSync(npmCmd, ['run', 'build'], { cwd: frontendDir, stdio: 'inherit' });
+  const build = spawnSync(npmCmd, ['run', 'build'], { cwd: frontendDir, stdio: 'inherit', shell: true });
   if (build.status !== 0) throw new Error('Falha ao compilar o frontend.');
   console.log('Frontend compilado em frontend/dist.');
+}
+
+// Entry point para execução direta: node scripts/build.js
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+  runBuild().catch((err) => {
+    console.error(`pandanews build: ${err && err.message}`);
+    process.exitCode = 1;
+  });
 }

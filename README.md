@@ -34,7 +34,11 @@ npx --yes @danhachuel/pandanews install
 
 O runtime fica em `~/.pandanews` (sobrescreva com a variável de ambiente `PANDANEWS_HOME`) — **upgrades de versão não reinstalam** o que já existe: o instalador detecta Python, dependências e dados já presentes e só instala o que falta.
 
-## Status (versão 0.1.03)
+## Status (versão 0.2.00)
+
+- UI React completa: Dashboard, Blogs, Notícias, Imagens, Automação, Configurações e Logs
+- Backend: CRUD de blogs, configurações NVIDIA/Gemini com teste de conexão, dashboard e logs — SQLite local
+- Próximo: pipeline de geração de notícias (Fase 3) e scheduler ativo (Fase 5)
 
 - `npx @danhachuel/pandanews` instala tudo junto (Python portátil + dependências + banco local) e sobe o backend em 127.0.0.1:8000 com página em 127.0.0.1:4030 — se a porta estiver ocupada, usa a seguinte automaticamente (4031, 4032, ...)
 - A UI React completa (Dashboard, Blogs, Notícias, Imagens, Automação, Configurações) e o pipeline de notícias chegam nas próximas versões (Fases 1 a 3 do plano — ver `CHANGELOG.md`)

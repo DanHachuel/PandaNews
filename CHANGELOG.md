@@ -2,6 +2,19 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.2.00 (2026-10-23)
+
+- **UI React completa** (Fase 2): Vite + TypeScript + Tailwind, sidebar com 7 seções, topbar com seletor de blog e tema claro/escuro
+  - Dashboard: checklist de onboarding (efeito Zeigarnik) com barra de progresso, estatísticas, gráfico de geração dos últimos 7 dias e últimos erros
+  - Blogs: cards, criação em assistente de 3 passos (Lei de Hick), edição, pausar/ativar e exclusão com confirmação modal (Lei de Jakob)
+  - Notícias: filtros por blog/status, badges de status (rascunho em âmbar — von Restorff), aprovar/rejeitar e edição manual
+  - Configurações: NVIDIA NIM e Google Gemini com keys mascaradas e teste de conexão real, ordem de fallback reordenável, banco SQLite/Supabase e agendamento — em blocos expansíveis (Lei de Miller)
+  - Automação: toggle global do scheduler e por blog; Imagens e Logs com empty states
+- **Favicon de urso-panda** 🐼 nas guias do navegador (SVG) — também no placeholder
+- **Backend Fase 1**: SQLite com tabelas blogs/noticias/configuracoes/logs criadas no startup, CRUD de blogs (`/api/v1/blogs`), configurações mascaradas (`/api/v1/configuracoes`), teste de LLM real por provedor (`/api/v1/llm/test`), dashboard (`/api/v1/dashboard`), notícias e logs
+- `start.js`: proxy `/api` → backend (UI same-origin) e fallback SPA para rotas do React Router
+- Workflow: build do frontend antes do publish (`frontend/dist` entra no tarball)
+
 ## 0.1.03 (2026-10-23)
 
 - Runtime movido para um diretório **estável por usuário** (`~/.pandanews`, sobrescrevível via `PANDANEWS_HOME`): upgrades de versão do pacote não reinstalam mais Python/dependências — o instalador detecta o que já existe e só instala o que falta

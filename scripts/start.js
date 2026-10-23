@@ -4,15 +4,18 @@
 // provisionado, executa o install completo (Python portátil + dependências)
 // antes de subir os servidores. A UI começa em PANDANEWS_UI_PORT (padrão 4030)
 // e, se a porta estiver ocupada, tenta automaticamente a seguinte (4031, ...).
+// Requisições /api/* são proxies para o backend em 127.0.0.1:8000.
 import { existsSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { join, extname } from 'node:path';
 import { resolveHome, runInstall, PKG_ROOT } from './install.js';
 
 const BACKEND_PORT = Number(process.env.PANDANEWS_API_PORT || 8000);
 const UI_PORT_BASE = Number(process.env.PANDANEWS_UI_PORT || 4030);
 const UI_PORT_MAX_TRIES = 20;
+
+const FAVICON_URI = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230b1220'/%3E%3Ccircle cx='25' cy='28' r='13' fill='%23e6edf3'/%3E%3Ccircle cx='75' cy='28' r='13' fill='%23e6edf3'/%3E%3Ccircle cx='50' cy='52' r='30' fill='%23e6edf3'/%3E%3Cellipse cx='37' cy='48' rx='9' ry='11' fill='%230b1220' transform='rotate(-15 37 48)'/%3E%3Cellipse cx='63' cy='48' rx='9' ry='11' fill='%230b1220' transform='rotate(15 63 48)'/%3E%3Ccircle cx='38' cy='49' r='3' fill='%2322c55e'/%3E%3Ccircle cx='62' cy='49' r='3' fill='%2322c55e'/%3E%3Cellipse cx='50' cy='62' rx='5' ry='4' fill='%230b1220'/%3E%3C/svg%3E";
 
 function venvBin(home) {
   return process.platform === 'win32'
@@ -34,15 +37,39 @@ const MIME = {
 function placeholderPage() {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
-<head><meta charset="utf-8"><title>PandaNews</title></head>
+<head>
+<meta charset="utf-8">
+<title>PandaNews</title>
+<link rel="icon" href="${FAVICON_URI}">
+</head>
 <body style="font-family: Inter, system-ui, sans-serif; background: #0b1220; color: #e6edf3; display: flex; min-height: 100vh; align-items: center; justify-content: center;">
   <div style="text-align: center;">
     <h1 style="font-size: 3rem; margin: 0;">🐼 PandaNews</h1>
-    <p style="color: #9aa7b5;">Backend ativo em <a style="color: #22c55e;" href="http://127.0.0.1:8000/api/v1/health">127.0.0.1:8000</a></p>
-    <p style="color: #9aa7b5;">A UI React completa chega na versão 0.2.00 (Fases 1 a 3 do plano).</p>
+    <p style="color: #9aa7b5;">Backend ativo em <a style="color: #22c55e;" href="/api/v1/health">/api/v1/health</a></p>
+    <p style="color: #9aa7b5;">A UI React completa chega na versão 0.2.00.</p>
   </div>
 </body>
 </html>`;
+}
+
+// Encaminha /api/* para o backend FastAPI em 127.0.0.1:8000.
+function proxyApi(req, res) {
+  const options = {
+    hostname: '127.0.0.1',
+    port: BACKEND_PORT,
+    path: req.url,
+    method: req.method,
+    headers: { ...req.headers, host: `127.0.0.1:${BACKEND_PORT}` },
+  };
+  const proxied = httpRequest(options, (upstream) => {
+    res.writeHead(upstream.statusCode || 502, upstream.headers);
+    upstream.pipe(res);
+  });
+  proxied.on('error', () => {
+    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ detail: `Backend PandaNews não responde em 127.0.0.1:${BACKEND_PORT}` }));
+  });
+  req.pipe(proxied);
 }
 
 let uiServer = null;
@@ -50,11 +77,30 @@ let uiServer = null;
 function createUiServer() {
   const distDir = join(PKG_ROOT, 'frontend', 'dist');
   return createServer((req, res) => {
+    if (req.url.startsWith('/api')) {
+      proxyApi(req, res);
+      return;
+    }
     const url = req.url.split('?')[0];
     const filePath = join(distDir, url === '/' ? 'index.html' : url.slice(1));
     if (!existsSync(filePath)) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(placeholderPage());
+      // SPA (BrowserRouter): rotas sem extensão caem no index.html quando o
+      // build existe; sem build, mostra o placeholder.
+      const indexHtml = join(distDir, 'index.html');
+      const hasBuild = existsSync(indexHtml);
+      const isAsset = extname(url) !== '';
+      if (hasBuild && !isAsset) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(readFileSync(indexHtml));
+        return;
+      }
+      if (!hasBuild) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(placeholderPage());
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Not found');
       return;
     }
     res.writeHead(200, { 'Content-Type': MIME[extname(filePath)] || 'application/octet-stream' });
@@ -112,7 +158,11 @@ export async function runStart() {
   const uvicorn = spawn(
     venvBin(home),
     ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(BACKEND_PORT)],
-    { cwd: PKG_ROOT, stdio: 'inherit' },
+    {
+      cwd: PKG_ROOT,
+      stdio: 'inherit',
+      env: { ...process.env, PANDANEWS_HOME: home },
+    },
   );
   uvicorn.on('exit', (code) => {
     if (code !== 0 && code !== null) {
