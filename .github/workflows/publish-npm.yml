@@ -1,0 +1,138 @@
+name: Publish npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão a publicar; deixe vazio para usar a versão do package.json"
+        required: false
+        type: string
+      dist_tag:
+        description: "NPM dist-tag para execuções manuais (staging)"
+        required: false
+        default: next
+        type: choice
+        options:
+          - next
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Apply requested version
+        if: ${{ inputs.version != '' }}
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          node -e 'const v = process.env.REQUESTED_VERSION; if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.[0-9]{2}$/.test(v || "")) { console.error("Invalid version; expected MAJOR.MINOR.PATCH with a two-digit PATCH"); process.exit(1); }'
+          if [ "$CURRENT_VERSION" != "$REQUESTED_VERSION" ]; then
+            npm version "$REQUESTED_VERSION" --no-git-tag-version
+          else
+            echo "Version $CURRENT_VERSION already selected; no change needed."
+          fi
+
+      - name: Validate package metadata
+        run: |
+          node --check bin/cli.js
+          node --check scripts/install.js
+          node --check scripts/start.js
+          node -e "const p=require('./package.json'); if (!p.name.startsWith('@danhachuel/')) process.exit(1); if (!p.bin || !p.bin['pandanews']) process.exit(1); console.log(p.name + '@' + p.version)"
+          npm pack --dry-run
+
+      - name: Smoke test launcher install
+        run: |
+          TEST_ROOT="${RUNNER_TEMP}/pandanews-install-smoke"
+          PANDANEWS_HOME="$TEST_ROOT" node bin/cli.js install --skip-python-deps
+          test -d "$TEST_ROOT/data"
+
+      - name: Publish to npm
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          REQUESTED_DIST_TAG: ${{ inputs.dist_tag }}
+        run: |
+          PACKAGE="@danhachuel/pandanews"
+          VERSION=$(node -p "require('./package.json').version")
+          DIST_TAG="${REQUESTED_DIST_TAG:-next}"
+          case "$DIST_TAG" in
+            next) ;;
+            *) echo "Unsupported npm dist-tag: $DIST_TAG" >&2; exit 1 ;;
+          esac
+          if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
+            echo "${PACKAGE}@${VERSION} already exists; assigning dist-tag ${DIST_TAG}."
+            npm dist-tag add "${PACKAGE}@${VERSION}" "$DIST_TAG"
+          else
+            npm publish --access public --tag "$DIST_TAG"
+          fi
+
+      - name: Verify published tarball is downloadable
+        run: |
+          PACKAGE="@danhachuel/pandanews"
+          VERSION=$(node -p "require('./package.json').version")
+          MAX_ATTEMPTS=18
+          DELAY=10
+          TARBALL=""
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            TARBALL=$(npm view --prefer-online "${PACKAGE}@${VERSION}" dist.tarball 2>/dev/null || true)
+            if [ -n "$TARBALL" ]; then
+              break
+            fi
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Published metadata not available yet (attempt ${attempt}/${MAX_ATTEMPTS}); waiting ${DELAY}s..."
+              sleep "$DELAY"
+              if [ "$DELAY" -lt 60 ]; then
+                DELAY=$((DELAY * 2))
+                if [ "$DELAY" -gt 60 ]; then DELAY=60; fi
+              fi
+            fi
+          done
+          if [ -z "$TARBALL" ]; then
+            echo "Published metadata was not available for ${PACKAGE}@${VERSION}"
+            exit 1
+          fi
+          DELAY=10
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            if curl --fail --location --silent --show-error --output /dev/null "$TARBALL"; then
+              echo "Published tarball is available: $TARBALL"
+              exit 0
+            fi
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Tarball not available yet (attempt ${attempt}/${MAX_ATTEMPTS}); waiting ${DELAY}s..."
+              sleep "$DELAY"
+              if [ "$DELAY" -lt 60 ]; then
+                DELAY=$((DELAY * 2))
+                if [ "$DELAY" -gt 60 ]; then DELAY=60; fi
+              fi
+            fi
+          done
+          echo "Published tarball was not downloadable: $TARBALL"
+          exit 1
+
+      - name: Promote verified release to npm latest
+        if: ${{ github.event_name == 'push' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PACKAGE="@danhachuel/pandanews"
+          VERSION=$(node -p "require('./package.json').version")
+          if ! npm view --prefer-online "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
+            echo "Refusing to promote ${PACKAGE}@${VERSION}: no published package to verify." >&2
+            exit 1
+          fi
+          npm dist-tag add "${PACKAGE}@${VERSION}" latest

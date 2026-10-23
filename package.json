@@ -1,0 +1,49 @@
+{
+  "name": "@danhachuel/pandanews",
+  "version": "0.1.0",
+  "description": "SaaS local de criação e automação de múltiplos blogs de notícias com IA (FastAPI + React + Tailwind).",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "pandanews": "bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "backend/",
+    "frontend/dist/",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:frontend": "node scripts/build.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DanHachuel/PandaNews.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DanHachuel/PandaNews/issues"
+  },
+  "homepage": "https://github.com/DanHachuel/PandaNews#readme",
+  "keywords": [
+    "news",
+    "blog",
+    "ai",
+    "automation",
+    "rss",
+    "llm"
+  ],
+  "author": "DanHachuel",
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "extract-zip": "^2.0.1",
+    "fs-extra": "^11.3.0",
+    "node-fetch": "^3.3.2",
+    "open": "^10.2.0",
+    "ora": "^8.2.0"
+  }
+}

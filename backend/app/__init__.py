@@ -1,0 +1,1 @@
+"""PandaNews — aplicação backend (FastAPI)."""
