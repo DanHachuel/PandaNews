@@ -9,42 +9,35 @@ SaaS **local** (roda no navegador) para criação e automação de múltiplos bl
 - 100% local por padrão (SQLite + arquivos), com Supabase opcional
 - Agendamento automático por blog (APScheduler)
 
-## Instalação
+## Instalação e uso — um único comando
 
 CMD / MobaXterm:
 
 ```
-npx.cmd --yes --prefer-online @danhachuel/pandanews@latest install
-npx.cmd --yes --prefer-online @danhachuel/pandanews@latest
+npx.cmd --yes --prefer-online @danhachuel/pandanews
 ```
 
 Shell (PowerShell, Linux, macOS):
 
 ```
-npx --yes @danhachuel/pandanews@latest install
-npx --yes @danhachuel/pandanews@latest
+npx --yes @danhachuel/pandanews
 ```
 
-Requisitos: **Node.js >= 20**. Nenhum Python pré-instalado é necessário — o instalador provisiona um runtime Python portátil na primeira execução (`.runtime/` na raiz do pacote; sobrescreva com a variável de ambiente `PANDANEWS_HOME`).
+Na primeira execução o PandaNews instala **tudo junto, automaticamente**: runtime Python portátil, dependências do backend e banco de dados local (SQLite). Nenhum Python, pip ou outra dependência pré-instalada é necessária — apenas **Node.js >= 20**.
 
-## Status (versão 0.1.00)
-
-Versão inicial de **bootstrap**: estrutura do repositório, CLI (`pandanews install/start/build`) e workflow de publicação via GitHub Actions. O backend FastAPI e a UI React chegam na **0.2.00** (Fases 1 a 4 do plano de implementação — ver `CHANGELOG.md`).
-
-## Desenvolvimento
+Opcional — pré-instalar antes do primeiro uso:
 
 ```
-# Backend
-pip install -r backend/requirements.txt
-uvicorn backend.app.main:app --reload --port 8000
-
-# Frontend
-cd frontend && npm install && npm run dev
-
-# CLI local
-node bin/cli.js install --skip-python-deps
-node bin/cli.js
+npx.cmd --yes --prefer-online @danhachuel/pandanews install
+npx --yes @danhachuel/pandanews install
 ```
+
+O runtime fica em `.runtime/` na raiz do pacote (sobrescreva com a variável de ambiente `PANDANEWS_HOME`).
+
+## Status (versão 0.1.01)
+
+- `npx @danhachuel/pandanews` instala tudo junto (Python portátil + dependências + banco local) e sobe o backend em 127.0.0.1:8000 com página em 127.0.0.1:3030
+- A UI React completa (Dashboard, Blogs, Notícias, Imagens, Automação, Configurações) e o pipeline de notícias chegam nas próximas versões (Fases 1 a 3 do plano — ver `CHANGELOG.md`)
 
 ## Regras do projeto
 
