@@ -39,12 +39,14 @@ jobs:
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          CURRENT_VERSION=$(node -p "require('./package.json').version")
           node -e 'const v = process.env.REQUESTED_VERSION; if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.[0-9]{2}$/.test(v || "")) { console.error("Invalid version; expected MAJOR.MINOR.PATCH with a two-digit PATCH"); process.exit(1); }'
-          if [ "$CURRENT_VERSION" != "$REQUESTED_VERSION" ]; then
-            npm version "$REQUESTED_VERSION" --no-git-tag-version
+          REQUESTED_CANONICAL=$(node -e "const [M,m,p] = process.argv[1].split('.'); console.log(Number(M) + '.' + Number(m) + '.' + Number(p))" "$REQUESTED_VERSION")
+          CURRENT_CANONICAL=$(node -e "const [M,m,p] = require('./package.json').version.split('.'); console.log(Number(M) + '.' + Number(m) + '.' + Number(p))")
+          echo "Requested visual ${REQUESTED_VERSION} -> canonical ${REQUESTED_CANONICAL}; package.json -> ${CURRENT_CANONICAL}"
+          if [ "$CURRENT_CANONICAL" != "$REQUESTED_CANONICAL" ]; then
+            npm version "$REQUESTED_CANONICAL" --no-git-tag-version
           else
-            echo "Version $CURRENT_VERSION already selected; no change needed."
+            echo "Version already selected; no change needed."
           fi
 
       - name: Validate package metadata
