@@ -2,6 +2,13 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.1.03 (2026-10-23)
+
+- Runtime movido para um diretório **estável por usuário** (`~/.pandanews`, sobrescrevível via `PANDANEWS_HOME`): upgrades de versão do pacote não reinstalam mais Python/dependências — o instalador detecta o que já existe e só instala o que falta
+- **Migração automática**: runtimes de instalações anteriores (cache do npx ou layout antigo na pasta do pacote) são localizados e reaproveitados em vez de baixados de novo (`PANDANEWS_SKIP_MIGRATE=1` força instalação limpa)
+- **Fingerprint de dependências** (requirements.txt + versão do Python): o pip só roda quando os requisitos mudam
+- Reinstalação do Python apenas quando a versão do runtime muda (limpeza automática do antigo)
+
 ## 0.1.02 (2026-10-23)
 
 - Porta padrão da UI alterada de 3030 para **4030** (sobrescrevível via `PANDANEWS_UI_PORT`)

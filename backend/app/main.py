@@ -7,7 +7,7 @@ de 4030). CRUD de blogs e configurações chegam na Fase 1.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="PandaNews API", version="0.1.2")
+app = FastAPI(title="PandaNews API", version="0.1.3")
 
 app.add_middleware(
     CORSMiddleware,
