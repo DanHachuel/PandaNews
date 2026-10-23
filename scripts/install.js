@@ -121,6 +121,25 @@ function migrateLegacyRuntime(home) {
   }
 }
 
+// Venvs carregam caminhos absolutos no pyvenv.cfg; após migração, aponta-os
+// para a localização atual do Python (idempotente).
+function fixVenvPaths(home) {
+  const cfgPath = join(home, '.runtime', 'venv', 'pyvenv.cfg');
+  if (!existsSync(cfgPath)) return;
+  const newPythonDir = join(home, '.runtime', 'python');
+  const exeRel = process.platform === 'win32' ? 'python.exe' : join('bin', 'python3');
+  let content = readFileSync(cfgPath, 'utf8');
+  const fixed = content.replace(
+    /^(home|executable|base_executable)\s*=.*$/gim,
+    (_m, key) => `${key} = ${key.toLowerCase() === 'home' ? newPythonDir : join(newPythonDir, exeRel)}`,
+  );
+  if (fixed !== content) {
+    content = fixed;
+    writeFileSync(cfgPath, content);
+    console.log('Caminhos do virtualenv corrigidos (pyvenv.cfg).');
+  }
+}
+
 async function downloadPython(home, platform) {
   const url = pythonArchiveUrl(platform);
   const runtimeDir = join(home, '.runtime');
@@ -201,6 +220,7 @@ export async function runInstall({ skipPythonDeps = false } = {}) {
     } else {
       console.log('Virtualenv já presente.');
     }
+    fixVenvPaths(home);
 
     // Dependências: só roda o pip quando o fingerprint muda.
     const fpFile = join(home, '.runtime', '.deps-fingerprint');

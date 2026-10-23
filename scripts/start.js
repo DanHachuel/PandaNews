@@ -5,7 +5,11 @@
 // antes de subir os servidores. A UI começa em PANDANEWS_UI_PORT (padrão 4030)
 // e, se a porta estiver ocupada, tenta automaticamente a seguinte (4031, ...).
 // Requisições /api/* são proxies para o backend em 127.0.0.1:8000.
-import { existsSync, readFileSync } from 'node:fs';
+//
+// Robustez: o output do backend é gravado em <home>/data/backend.log e, se o
+// processo morrer de forma anormal, o backend reinicia sozinho (até 5 vezes)
+// — a UI não cai junto.
+import { createWriteStream, existsSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
 import { join, extname } from 'node:path';
@@ -14,6 +18,9 @@ import { resolveHome, runInstall, PKG_ROOT } from './install.js';
 const BACKEND_PORT = Number(process.env.PANDANEWS_API_PORT || 8000);
 const UI_PORT_BASE = Number(process.env.PANDANEWS_UI_PORT || 4030);
 const UI_PORT_MAX_TRIES = 20;
+const BACKEND_MAX_RESTARTS = 5;
+const BACKEND_RESTART_DELAY_MS = 3000;
+const BACKEND_HEALTHY_UPTIME_MS = 60000;
 
 const FAVICON_URI = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230b1220'/%3E%3Ccircle cx='25' cy='28' r='13' fill='%23e6edf3'/%3E%3Ccircle cx='75' cy='28' r='13' fill='%23e6edf3'/%3E%3Ccircle cx='50' cy='52' r='30' fill='%23e6edf3'/%3E%3Cellipse cx='37' cy='48' rx='9' ry='11' fill='%230b1220' transform='rotate(-15 37 48)'/%3E%3Cellipse cx='63' cy='48' rx='9' ry='11' fill='%230b1220' transform='rotate(15 63 48)'/%3E%3Ccircle cx='38' cy='49' r='3' fill='%2322c55e'/%3E%3Ccircle cx='62' cy='49' r='3' fill='%2322c55e'/%3E%3Cellipse cx='50' cy='62' rx='5' ry='4' fill='%230b1220'/%3E%3C/svg%3E";
 
@@ -141,6 +148,56 @@ async function openBrowser(url) {
   }
 }
 
+let backendProc = null;
+let backendRestarts = 0;
+
+// Sobe o backend com saída espelhada no console e em <home>/data/backend.log.
+// Se o processo morrer de forma anormal, reinicia sozinho (até 5 tentativas).
+function startBackend(home) {
+  console.log(`Iniciando backend FastAPI em http://127.0.0.1:${BACKEND_PORT} ...`);
+  const uvicorn = spawn(
+    venvBin(home),
+    ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(BACKEND_PORT)],
+    {
+      cwd: PKG_ROOT,
+      stdio: ['inherit', 'pipe', 'pipe'],
+      env: { ...process.env, PANDANEWS_HOME: home },
+    },
+  );
+  backendProc = uvicorn;
+
+  const logPath = join(home, 'data', 'backend.log');
+  const logStream = createWriteStream(logPath, { flags: 'a' });
+  logStream.write(`\n--- ${new Date().toISOString()} — iniciando backend (pid ${uvicorn.pid}) ---\n`);
+  uvicorn.stdout.on('data', (chunk) => {
+    process.stdout.write(chunk);
+    logStream.write(chunk);
+  });
+  uvicorn.stderr.on('data', (chunk) => {
+    process.stderr.write(chunk);
+    logStream.write(chunk);
+  });
+
+  const startedAt = Date.now();
+  uvicorn.on('exit', (code) => {
+    logStream.end(`--- backend encerrou com código ${code} ---\n`);
+    if (code === 0 || code === null) {
+      return;
+    }
+    if (Date.now() - startedAt > BACKEND_HEALTHY_UPTIME_MS) {
+      backendRestarts = 0; // rodou saudável por tempo suficiente: zera o contador
+    }
+    backendRestarts += 1;
+    if (backendRestarts > BACKEND_MAX_RESTARTS) {
+      console.error(`Backend caiu ${backendRestarts - 1}x seguidas — desistindo.`);
+      console.error(`Log completo do backend: ${logPath}`);
+      process.exit(1);
+    }
+    console.error(`Backend encerrou com código ${code} — reiniciando em 3s (tentativa ${backendRestarts}/${BACKEND_MAX_RESTARTS})...`);
+    setTimeout(() => startBackend(home), BACKEND_RESTART_DELAY_MS);
+  });
+}
+
 export async function runStart() {
   const home = resolveHome();
   if (!existsSync(join(home, '.runtime', '.ready'))) {
@@ -154,28 +211,12 @@ export async function runStart() {
     return;
   }
 
-  console.log(`Iniciando backend FastAPI em http://127.0.0.1:${BACKEND_PORT} ...`);
-  const uvicorn = spawn(
-    venvBin(home),
-    ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(BACKEND_PORT)],
-    {
-      cwd: PKG_ROOT,
-      stdio: 'inherit',
-      env: { ...process.env, PANDANEWS_HOME: home },
-    },
-  );
-  uvicorn.on('exit', (code) => {
-    if (code !== 0 && code !== null) {
-      console.error(`Backend encerrou com código ${code}.`);
-      process.exit(code ?? 1);
-    }
-  });
-
+  startBackend(home);
   listenUi(UI_PORT_BASE, 1);
 
   process.on('exit', () => {
     if (uiServer) uiServer.close();
-    uvicorn.kill();
+    if (backendProc) backendProc.kill();
   });
   process.on('SIGINT', () => process.exit(0));
   process.on('SIGTERM', () => process.exit(0));

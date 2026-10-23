@@ -2,6 +2,12 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.2.01 (2026-10-23)
+
+- **Blindagem do backend**: saída do uvicorn espelhada no console e gravada em `<home>/data/backend.log` — queda anormal registra o motivo para diagnóstico
+- **Auto-restart**: se o backend encerrar com código anormal (ex.: 103), reinicia sozinho em 3s (até 5 tentativas) — a UI não cai junto
+- `install`: correção idempotente dos caminhos absolutos do `pyvenv.cfg` após migração de runtime (venv movida herdava caminhos antigos)
+
 ## 0.2.00 (2026-10-23)
 
 - **UI React completa** (Fase 2): Vite + TypeScript + Tailwind, sidebar com 7 seções, topbar com seletor de blog e tema claro/escuro
