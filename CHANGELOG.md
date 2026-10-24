@@ -2,6 +2,14 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.2.02 (2026-10-24)
+
+- **O sistema NUNCA abre o navegador**: o app exibe o endereço no terminal e o usuário decide quando abrir (dependência `open` removida)
+- **Terminal limpo**: logs de acesso do uvicorn (stdout — `GET /health`, `GET /api/v1/*` etc.) vão apenas para `data/backend.log`; o console mantém somente stderr (banner de inicialização, WARNING/ERROR e tracebacks)
+- **Fallback de porta também para o backend**: se 8000 estiver ocupada (ex.: outra instância), o backend sobe em 8001, 8002... e o proxy da UI segue automaticamente — junto com o fallback já existente da UI (4030, 4031...)
+- Novo endpoint `GET /health` na raiz (200 OK) para clientes que esperam esse caminho — elimina os 404; o health canônico segue em `/api/v1/health`
+- `data/backend.log` continua registrando TODAS as requisições (incluindo `/health`) para auditoria — o filtro no logger `uvicorn.access` (Python) foi deliberadamente evitado: removeria `/health` também do arquivo de auditoria; o silenciamento é feito apenas no console
+
 ## 0.2.01 (2026-10-23)
 
 - **Blindagem do backend**: saída do uvicorn espelhada no console e gravada em `<home>/data/backend.log` — queda anormal registra o motivo para diagnóstico

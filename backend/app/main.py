@@ -19,7 +19,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="PandaNews API", version="0.2.1", lifespan=lifespan)
+app = FastAPI(title="PandaNews API", version="0.2.2", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,4 +38,10 @@ app.include_router(logs.router, prefix="/api/v1")
 
 @app.get("/api/v1/health")
 def health() -> dict:
+    return {"status": "ok", "service": "pandanews", "version": app.version}
+
+
+@app.get("/health")
+def health_root() -> dict:
+    """Alias na raiz para clientes que esperam /health (extensões, monitores)."""
     return {"status": "ok", "service": "pandanews", "version": app.version}
