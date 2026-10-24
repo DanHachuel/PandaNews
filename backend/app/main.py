@@ -1,25 +1,37 @@
 """PandaNews API — FastAPI.
 
-Fase 1: CRUD de blogs, configurações (keys mascaradas), teste de LLM,
-dashboard com métricas/onboarding, notícias e logs. SQLite local criado
-automaticamente no startup (init_db). CORS liberado para a UI local.
+Fases 1, 3 e 5: CRUD de blogs, configurações (keys mascaradas), teste de LLM,
+dashboard, notícias (com geração via pipeline), imagens, logs, automação com
+scheduler ativo por blog. SQLite local criado automaticamente no startup.
+CORS liberado para a UI local (localhost em qualquer porta).
 """
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.routers import blogs, configuracoes, dashboard, llm, logs, noticias
-from backend.core.database import init_db
+from backend.app.routers import automacao, blogs, configuracoes, dashboard, imagens, llm, logs, noticias
+from backend.core.database import SessionLocal, init_db
+from backend.core.llm_router import get_config
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    from backend.core import scheduler
+
+    db = SessionLocal()
+    try:
+        if get_config(db, "scheduler_ativo", "true") == "true":
+            scheduler.iniciar()
+            scheduler.recarregar()
+    finally:
+        db.close()
     yield
+    scheduler.parar()
 
 
-app = FastAPI(title="PandaNews API", version="0.2.2", lifespan=lifespan)
+app = FastAPI(title="PandaNews API", version="0.3.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,6 +45,8 @@ app.include_router(configuracoes.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(llm.router, prefix="/api/v1")
 app.include_router(noticias.router, prefix="/api/v1")
+app.include_router(imagens.router, prefix="/api/v1")
+app.include_router(automacao.router, prefix="/api/v1")
 app.include_router(logs.router, prefix="/api/v1")
 
 

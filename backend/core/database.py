@@ -55,7 +55,20 @@ class Noticia(Base):
     imagem_url: Mapped[str] = mapped_column(String(500), default="")
     status: Mapped[str] = mapped_column(String(20), default="rascunho", index=True)
     llm_provider: Mapped[str] = mapped_column(String(50), default="")
+    fonte_url: Mapped[str] = mapped_column(String(600), default="")
+    fonte_titulo: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
+
+
+class Visto(Base):
+    """Itens de feed já utilizados por blog (dedup do pipeline)."""
+
+    __tablename__ = "vistos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    blog_id: Mapped[int] = mapped_column(ForeignKey("blogs.id"), index=True)
+    url: Mapped[str] = mapped_column(String(600))
+    created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
 class Configuracao(Base):
@@ -78,6 +91,24 @@ class Log(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _migrate()
+
+
+def _migrate() -> None:
+    """Migrações leves para bancos existentes (SQLite)."""
+    if not DB_URL.startswith("sqlite"):
+        return
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        colunas = [row[1] for row in conn.execute(text("PRAGMA table_info(noticias)"))]
+        for coluna, ddl in (
+            ("fonte_url", "VARCHAR(600) DEFAULT ''"),
+            ("fonte_titulo", "TEXT DEFAULT ''"),
+        ):
+            if coluna not in colunas:
+                conn.execute(text(f"ALTER TABLE noticias ADD COLUMN {coluna} {ddl}"))
+        conn.commit()
 
 
 def get_db():

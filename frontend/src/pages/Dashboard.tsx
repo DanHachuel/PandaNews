@@ -1,15 +1,19 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiGet } from '../lib/api';
-import type { Dashboard } from '../lib/types';
-import { Badge, Card } from '../components/ui';
+import type { Blog, Dashboard } from '../lib/types';
+import { Badge, Button, Card } from '../components/ui';
+import { GerarNoticiaModal } from '../components/GerarNoticiaModal';
 
 export function Dashboard() {
+  const [gerarAberto, setGerarAberto] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => apiGet<Dashboard>('/dashboard'),
     refetchInterval: 15000,
   });
+  const { data: blogs } = useQuery({ queryKey: ['blogs'], queryFn: () => apiGet<Blog[]>('/blogs') });
 
   if (isLoading || !data) {
     return <p className="text-slate-500">Carregando…</p>;
@@ -25,7 +29,15 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-extrabold">Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-extrabold">Dashboard</h1>
+        {/* Lei de von Restorff: ação principal em verde vibrante (Lei de Fitts: grande) */}
+        <Button onClick={() => setGerarAberto(true)} disabled={(blogs ?? []).length === 0} title={(blogs ?? []).length === 0 ? 'Crie um blog primeiro' : undefined}>
+          ⚡ Gerar notícia agora
+        </Button>
+      </div>
+
+      <GerarNoticiaModal open={gerarAberto} blogs={blogs ?? []} onClose={() => setGerarAberto(false)} />
 
       {/* Efeito Zeigarnik: checklist de onboarding com progresso visível */}
       <Card>

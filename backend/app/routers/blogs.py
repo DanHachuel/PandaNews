@@ -41,6 +41,13 @@ def obter_blog(blog_id: int, db: Session = Depends(get_db)) -> dict:
     return blog_to_dict(blog)
 
 
+def _sync_scheduler() -> None:
+    from backend.core import scheduler
+
+    if scheduler.esta_ativo():
+        scheduler.recarregar()
+
+
 @router.post("", status_code=201)
 def criar_blog(payload: BlogIn, db: Session = Depends(get_db)) -> dict:
     blog = Blog(
@@ -56,6 +63,7 @@ def criar_blog(payload: BlogIn, db: Session = Depends(get_db)) -> dict:
     db.add(Log(etapa="blog", status="sucesso", mensagem=f"Blog criado: {payload.nome}"))
     db.commit()
     db.refresh(blog)
+    _sync_scheduler()
     return blog_to_dict(blog)
 
 
@@ -71,6 +79,7 @@ def atualizar_blog(blog_id: int, payload: BlogPatch, db: Session = Depends(get_d
         setattr(blog, key, value)
     db.commit()
     db.refresh(blog)
+    _sync_scheduler()
     return blog_to_dict(blog)
 
 
@@ -85,3 +94,4 @@ def excluir_blog(blog_id: int, db: Session = Depends(get_db)) -> None:
     db.delete(blog)
     db.add(Log(etapa="blog", status="sucesso", mensagem=f"Blog excluído: {blog.nome}"))
     db.commit()
+    _sync_scheduler()

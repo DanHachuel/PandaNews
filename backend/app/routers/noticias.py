@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,6 +10,51 @@ from backend.app.schemas import NoticiaPatch, STATUS_NOTICIA
 from backend.core.database import Noticia, get_db
 
 router = APIRouter(prefix="/noticias", tags=["noticias"])
+
+
+class GerarIn(BaseModel):
+    blog_id: int
+
+
+def _serializar(n: Noticia) -> dict:
+    return {
+        "id": n.id,
+        "blog_id": n.blog_id,
+        "titulo": n.titulo,
+        "corpo": n.corpo,
+        "resumo": n.resumo,
+        "imagem_url": n.imagem_url,
+        "status": n.status,
+        "llm_provider": n.llm_provider,
+        "fonte_url": n.fonte_url,
+        "fonte_titulo": n.fonte_titulo,
+        "created_at": n.created_at,
+    }
+
+
+@router.post("/gerar", status_code=201)
+def gerar_noticia(payload: GerarIn) -> dict:
+    from backend.core import pipeline
+
+    noticia = pipeline.gerar_noticia(payload.blog_id)
+    if noticia is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Nenhuma notícia nova: sem itens nas fontes, todos já utilizados ou erro na geração — verifique os Logs.",
+        )
+    return _serializar(noticia)
+
+
+@router.post("/{noticia_id}/regenerar")
+def regenerar_noticia(noticia_id: int) -> dict:
+    from backend.core import pipeline
+
+    noticia = pipeline.regenerar_noticia(noticia_id)
+    if noticia is None:
+        raise HTTPException(status_code=404, detail="Notícia (ou blog/fonte) não encontrada")
+    if not noticia.fonte_titulo and not noticia.fonte_url:
+        raise HTTPException(status_code=422, detail="Notícia sem fonte associada — use Gerar notícia para criar uma nova")
+    return _serializar(noticia)
 
 
 @router.get("")

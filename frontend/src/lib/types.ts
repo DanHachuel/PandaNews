@@ -24,6 +24,8 @@ export interface Noticia {
   imagem_url: string;
   status: string;
   llm_provider: string;
+  fonte_url?: string;
+  fonte_titulo?: string;
   created_at: string;
 }
 
@@ -67,4 +69,23 @@ export interface Dashboard {
     tem_noticia: boolean;
     concluidos: number;
   };
+}
+
+export interface ImagemItem {
+  noticia_id: number;
+  url: string;
+  titulo: string;
+  created_at: string;
+}
+
+export interface AutomacaoJob {
+  blog_id: number;
+  nome: string;
+  frequencia_horas: number;
+  proxima_execucao: string | null;
+}
+
+export interface AutomacaoStatus {
+  ativo: boolean;
+  jobs: AutomacaoJob[];
 }

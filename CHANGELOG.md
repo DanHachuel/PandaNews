@@ -2,6 +2,15 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.3.00 (2026-10-24)
+
+- **Pipeline de notícias completo** (Fase 3): coleta RSS (feedparser) → filtragem por relevância (palavras-chave do tema + bônus de região) → redação via LLM com fallback NVIDIA → Gemini (resposta em JSON: título, resumo, corpo) → imagem fotojornalística via Gemini Image salva em `data/imagens/`
+- **Scheduler ativo** (Fase 5): APScheduler com um job por blog ativo (intervalo = frequência do blog), toggle global em Automação liga/desliga de fato, recarregamento automático ao criar/editar/pausar/excluir blogs
+- **Novos endpoints**: `POST /api/v1/noticias/gerar` (dispara o pipeline), `POST /api/v1/noticias/{id}/regenerar`, `GET/POST /api/v1/imagens` (galeria, arquivo e geração manual por prompt), `GET /api/v1/automacao/status` (próxima execução por blog), `POST /api/v1/automacao/executar`
+- Dedup de itens: tabela `vistos` evita reutilizar o mesmo item de feed; migração leve adiciona `fonte_url`/`fonte_titulo` às notícias em bancos existentes
+- Logs de execução por etapa (coleta/redação/imagem/pipeline) visíveis na página Logs
+- UI: botão "Gerar notícia agora" com stepper de progresso (Gradiente de Meta: coletando → redigindo → gerando imagem → salvo), ação Regenerar nas notícias, galeria real de imagens com geração manual e próxima execução por blog na Automação
+
 ## 0.2.02 (2026-10-24)
 
 - **O sistema NUNCA abre o navegador**: o app exibe o endereço no terminal e o usuário decide quando abrir (dependência `open` removida)

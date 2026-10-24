@@ -4,11 +4,13 @@ import { apiGet, apiSend } from '../lib/api';
 import type { Blog, Noticia } from '../lib/types';
 import { useUi } from '../lib/store';
 import { Badge, Button, Card, Empty, Field, StatusBadge, inputClass, selectClass } from '../components/ui';
+import { GerarNoticiaModal } from '../components/GerarNoticiaModal';
 
 export function Noticias() {
   const queryClient = useQueryClient();
   const { blogAtivo } = useUi();
   const [status, setStatus] = useState('');
+  const [gerarAberto, setGerarAberto] = useState(false);
   const [editando, setEditando] = useState<Noticia | null>(null);
   const [form, setForm] = useState({ titulo: '', resumo: '', corpo: '' });
   const [erro, setErro] = useState('');
@@ -46,18 +48,38 @@ export function Noticias() {
     onError: (e: Error) => setErro(e.message),
   });
 
+  const regenerar = useMutation({
+    mutationFn: (id: number) => apiSend<Noticia>(`/noticias/${id}/regenerar`, 'POST'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['noticias'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-extrabold">Notícias</h1>
-        <select className={`${selectClass} w-44`} value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">Todos os status</option>
-          <option value="rascunho">Rascunho (pendente)</option>
-          <option value="aprovado">Aprovado</option>
-          <option value="rejeitado">Rejeitado</option>
-          <option value="publicado">Publicado</option>
-        </select>
+        <div className="flex items-center gap-3">
+          <select className={`${selectClass} w-44`} value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">Todos os status</option>
+            <option value="rascunho">Rascunho (pendente)</option>
+            <option value="aprovado">Aprovado</option>
+            <option value="rejeitado">Rejeitado</option>
+            <option value="publicado">Publicado</option>
+          </select>
+          <Button onClick={() => setGerarAberto(true)} disabled={(blogs ?? []).length === 0} title={(blogs ?? []).length === 0 ? 'Crie um blog primeiro' : undefined}>
+            ⚡ Gerar notícia
+          </Button>
+        </div>
       </div>
+
+      <GerarNoticiaModal
+        open={gerarAberto}
+        blogs={blogs ?? []}
+        blogInicial={blogAtivo}
+        onClose={() => setGerarAberto(false)}
+      />
 
       {isLoading ? (
         <p className="text-slate-500">Carregando…</p>
@@ -86,6 +108,11 @@ export function Noticias() {
                 n.status === 'rascunho' && <Badge tone="amber">sem imagem</Badge>
               )}
               <div className="mt-4 flex flex-wrap justify-end gap-2">
+                {n.fonte_titulo && (
+                  <Button variant="secondary" onClick={() => regenerar.mutate(n.id)} disabled={regenerar.isPending} title="Re-escrever a partir da fonte original">
+                    ↻ Regenerar
+                  </Button>
+                )}
                 <Button
                   variant="secondary"
                   onClick={() => {

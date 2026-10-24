@@ -55,4 +55,16 @@ def salvar_configuracoes(payload: ConfiguracoesPatch, db: Session = Depends(get_
         else:
             row.valor = str(valor)
     db.commit()
+    if "scheduler_ativo" in data:
+        from backend.core import scheduler
+
+        bruto = data["scheduler_ativo"]
+        ligado = bruto if isinstance(bruto, bool) else str(bruto).lower() == "true"
+        if ligado and not scheduler.esta_ativo():
+            scheduler.iniciar()
+            scheduler.recarregar()
+        elif ligado:
+            scheduler.recarregar()
+        else:
+            scheduler.parar()
     return obter_configuracoes(db)
