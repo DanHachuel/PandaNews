@@ -29,6 +29,10 @@ IMAGES_DIR = DATA_DIR / "imagens"
 DB_PATH = DATA_DIR / "pandanews.db"
 DB_URL = os.environ.get("PANDANEWS_DB_URL", f"sqlite:///{DB_PATH}")
 
+# Raiz do pacote (backend/core/config.py -> parents[2])
+PKG_DIR = Path(__file__).resolve().parents[2]
+LEGAL_DIR = PKG_DIR / "legal"
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 

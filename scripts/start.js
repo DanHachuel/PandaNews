@@ -104,7 +104,7 @@ let uiServer = null;
 function createUiServer() {
   const distDir = join(PKG_ROOT, 'frontend', 'dist');
   return createServer((req, res) => {
-    if (req.url.startsWith('/api')) {
+    if (req.url.startsWith('/api') || req.url.startsWith('/legal')) {
       proxyApi(req, res);
       return;
     }

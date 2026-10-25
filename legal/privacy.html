@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Política de Privacidade - PandaNews</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0b1220 0%, #14532d 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card {
+            background: #ffffff;
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+        }
+        .badge {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            color: #052e16;
+            padding: 8px 16px;
+            border-radius: 50px;
+            display: inline-block;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        h1 { color: #0b1220; font-size: 2.2em; margin-bottom: 10px; }
+        h2 { color: #14532d; margin: 28px 0 12px 0; font-size: 1.45em; }
+        h3 { color: #166534; margin: 18px 0 8px 0; font-size: 1.15em; }
+        p { color: #475569; line-height: 1.65; margin: 10px 0; }
+        ul, ol { margin: 10px 0 10px 28px; color: #475569; line-height: 1.65; }
+        li { margin: 6px 0; }
+        strong { color: #0b1220; }
+        code {
+            background: #e8f0ea;
+            color: #14532d;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+        a { color: #15803d; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .destaque {
+            background: #ecfdf5;
+            border-left: 4px solid #22c55e;
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin: 15px 0;
+            color: #14532d;
+        }
+        .links {
+            margin: 30px 0 20px 0;
+            padding: 22px;
+            background: #ecfdf5;
+            border-radius: 15px;
+            text-align: center;
+        }
+        .links a {
+            display: inline-block;
+            min-height: 44px;
+            line-height: 44px;
+            padding: 0 14px;
+            color: #15803d;
+            text-decoration: none;
+            margin: 4px 8px;
+            font-weight: 600;
+            border-radius: 10px;
+        }
+        .links a:hover { background: #d1fae5; }
+        footer { text-align: center; color: rgba(255,255,255,0.85); margin-top: 30px; line-height: 1.6; }
+        .contact {
+            background: #fff8e6;
+            padding: 18px;
+            border-radius: 10px;
+            margin-top: 20px;
+            line-height: 1.7;
+        }
+        .contact a { color: #15803d; }
+        @media (max-width: 600px) {
+            .card { padding: 25px; }
+            h1 { font-size: 1.6em; }
+            h2 { font-size: 1.25em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="badge">🔒 Documento Legal</div>
+            <h1>Política de Privacidade</h1>
+            <p><strong>Data de vigência:</strong> 25 de outubro de 2026</p>
+            <p><strong>Aplicação:</strong> PandaNews — geração e automação de blogs de notícias com IA</p>
+
+            <p>
+                Esta Política de Privacidade descreve como o PandaNews trata dados pessoais e informações do usuário,
+                em conformidade com a <strong>Lei Geral de Proteção de Dados Pessoais (LGPD — Lei nº 13.709/2018)</strong>.
+            </p>
+            <div class="destaque">
+                <strong>Princípio fundamental do PandaNews:</strong> o aplicativo é <strong>100% local</strong>. Ele é executado
+                na máquina do próprio usuário via <code>npx</code>, e todos os dados — configurações, conteúdo e credenciais —
+                residem no banco SQLite local (<code>data/pandanews.db</code>). <strong>Nenhum dado é enviado a servidores
+                do desenvolvedor.</strong>
+            </div>
+
+            <h2>1. Dados coletados</h2>
+            <p>O PandaNews trata as seguintes categorias de dados, todas armazenadas localmente na máquina do usuário:</p>
+            <ul>
+                <li><strong>Dados de configuração de blogs:</strong> nome, tema (esporte, política, economia, tecnologia, geral), região, fontes RSS, estilo editorial, frequência de geração e status.</li>
+                <li><strong>Conteúdo coletado de feeds RSS públicos:</strong> títulos, resumos e links de notícias das fontes configuradas pelo usuário.</li>
+                <li><strong>Conteúdo gerado por IA:</strong> notícias (título, resumo, corpo), imagens ilustrativas e o provedor de LLM que gerou cada texto.</li>
+                <li><strong>Chaves de API fornecidas pelo usuário:</strong> NVIDIA NIM, Google Gemini e Supabase — armazenadas localmente, no banco SQLite do próprio usuário.</li>
+                <li><strong>Dados de uso da plataforma:</strong> logs de execução (sucessos e erros por etapa), status do agendador e estatísticas de geração — visíveis apenas para o próprio usuário.</li>
+                <li><strong>Tokens e credenciais do Supabase:</strong> apenas se o usuário optar explicitamente por esse backend.</li>
+            </ul>
+
+            <h2>2. Finalidade do tratamento</h2>
+            <ul>
+                <li>Coleta e agregação de notícias de fontes públicas para fins editoriais.</li>
+                <li>Geração de conteúdo textual e visual com Inteligência Artificial.</li>
+                <li>Automação de geração conforme a frequência configurada por blog.</li>
+                <li>Produção de estatísticas e logs de execução para o próprio usuário acompanhar a operação.</li>
+            </ul>
+
+            <h2>3. Compartilhamento de dados</h2>
+            <p>O PandaNews é arquitetado para compartilhar <strong>o mínimo necessário</strong>, apenas com os provedores de API
+            cujas chaves o próprio usuário configura:</p>
+            <ul>
+                <li><strong>NVIDIA NIM (LLM):</strong> apenas o texto dos prompts e o contexto da notícia (título e resumo da fonte) são enviados para a redação. <strong>Nenhum dado pessoal do usuário é compartilhado.</strong></li>
+                <li><strong>Google Gemini (LLM de fallback):</strong> mesmo escopo do item acima — apenas prompts e contexto editorial.</li>
+                <li><strong>Google Gemini Image API:</strong> apenas prompts visuais derivados do conteúdo da notícia (palavras-chave do título/resumo).</li>
+                <li><strong>Supabase:</strong> apenas se o usuário optar explicitamente por esse backend, e apenas os dados que ele próprio decidir sincronizar.</li>
+                <li>O PandaNews <strong>não compartilha dados com terceiros</strong> para fins publicitários, de marketing ou de perfilação, e <strong>não vende dados</strong> sob nenhuma circunstância.</li>
+            </ul>
+
+            <h2>4. Armazenamento e localização</h2>
+            <ul>
+                <li>Por padrão, todos os dados residem no <strong>SQLite local</strong> na máquina do usuário: <code>data/pandanews.db</code>.</li>
+                <li>As imagens geradas residem em <code>data/imagens/</code>, também na máquina do usuário.</li>
+                <li>O runtime (Python portátil e dependências) fica em <code>~/.pandanews/</code>, separado do pacote npm.</li>
+                <li><strong>Nenhum dado é enviado a servidores do desenvolvedor do PandaNews.</strong> O tráfego externo limita-se às chamadas de API descritas na seção 3 e à leitura dos feeds RSS configurados.</li>
+            </ul>
+
+            <h2>5. Direitos do titular (LGPD, art. 18)</h2>
+            <p>Nos termos da LGPD, o titular dos dados possui direito à confirmação do tratamento, acesso, correção,
+            anonimização, portabilidade e eliminação dos dados. Como o PandaNews é uma aplicação local, <strong>o próprio
+            usuário exerce esses direitos diretamente</strong>:</p>
+            <ul>
+                <li>No banco de dados local (<code>data/pandanews.db</code>), acessível com qualquer ferramenta de SQLite;</li>
+                <li>Pela interface do aplicativo (exclusão de blogs e notícias, edição de configurações);</li>
+                <li>Para dados eventualmente sincronizados ao Supabase, diretamente no painel do Supabase, que pertence ao próprio usuário.</li>
+            </ul>
+            <p>Dúvidas sobre tratamento de dados podem ser enviadas ao canal de contato indicado ao final deste documento.</p>
+
+            <h2>6. Segurança</h2>
+            <ul>
+                <li>As chaves de API são armazenadas <strong>localmente</strong> no SQLite da própria máquina, sem criptografia adicional — cabe ao usuário proteger o acesso ao seu sistema.</li>
+                <li>Recomenda-se <strong>não compartilhar</strong> o arquivo <code>data/pandanews.db</code> nem o arquivo <code>.env</code> do projeto, pois ambos podem conter credenciais.</li>
+                <li>O aplicativo escuta apenas em <code>127.0.0.1</code> (interface local), não expondo os serviços à rede externa.</li>
+            </ul>
+
+            <h2>7. Cookies</h2>
+            <p>O PandaNews é uma aplicação local servida em <code>localhost</code> e <strong>não utiliza cookies de rastreamento
+            de terceiros</strong>, analytics externos ou pixels de publicidade. Cookies de sessão, caso existam na interface
+            local, servem apenas ao funcionamento da própria UI.</p>
+
+            <h2>8. Transferência internacional</h2>
+            <p>As chamadas às APIs de LLM e imagem (NVIDIA NIM, Google Gemini) implicam envio dos prompts aos servidores
+            desses provedores, que podem estar localizados fora do Brasil, regidos pelos termos de uso e políticas de
+            privacidade de cada provedor. O PandaNews não envia a esses provedores nenhum dado pessoal além do conteúdo
+            dos prompts editoriais descritos na seção 3.</p>
+
+            <h2>9. Alterações desta Política</h2>
+            <p>Esta Política de Privacidade pode ser atualizada a qualquer momento. A versão vigente será publicada neste
+            endereço, com a data de vigência atualizada. O uso contínuo do PandaNews após alterações implica concordância
+            com a versão vigente.</p>
+
+            <h2>10. Contato</h2>
+            <p>Para exercer direitos de titular ou esclarecer dúvidas sobre esta Política:</p>
+            <ul>
+                <!-- TODO: confirmar e-mail -->
+                <li>Por e-mail: <a href="mailto:danchannels96@gmail.com">danchannels96@gmail.com</a></li>
+            </ul>
+
+            <div class="links">
+                <a href="index.html">🏠 Voltar para Home</a>
+                <a href="terms.html">📜 Termos de Uso</a>
+            </div>
+
+            <div class="contact">
+                <strong>📧 Desenvolvedor:</strong> Dan Hachuel<br>
+                <!-- TODO: confirmar e-mail -->
+                <strong>📩 Contato:</strong> <a href="mailto:danchannels96@gmail.com">danchannels96@gmail.com</a>
+            </div>
+        </div>
+        <footer>
+            <p>© 2026 PandaNews — Dan Hachuel</p>
+            <p>Este site é usado para verificação da aplicação junto aos provedores de API utilizados: Google Gemini, NVIDIA NIM e Supabase.</p>
+        </footer>
+    </div>
+</body>
+</html>

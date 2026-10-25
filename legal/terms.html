@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Termos de Uso - PandaNews</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0b1220 0%, #14532d 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card {
+            background: #ffffff;
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+        }
+        .badge {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            color: #052e16;
+            padding: 8px 16px;
+            border-radius: 50px;
+            display: inline-block;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        h1 { color: #0b1220; font-size: 2.2em; margin-bottom: 10px; }
+        h2 { color: #14532d; margin: 28px 0 12px 0; font-size: 1.45em; }
+        p { color: #475569; line-height: 1.65; margin: 10px 0; }
+        ul, ol { margin: 10px 0 10px 28px; color: #475569; line-height: 1.65; }
+        li { margin: 6px 0; }
+        strong { color: #0b1220; }
+        code {
+            background: #e8f0ea;
+            color: #14532d;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+        a { color: #15803d; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .alerta {
+            background: #fff8e6;
+            border-left: 4px solid #f59e0b;
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin: 15px 0;
+            color: #78350f;
+        }
+        .links {
+            margin: 30px 0 20px 0;
+            padding: 22px;
+            background: #ecfdf5;
+            border-radius: 15px;
+            text-align: center;
+        }
+        .links a {
+            display: inline-block;
+            min-height: 44px;
+            line-height: 44px;
+            padding: 0 14px;
+            color: #15803d;
+            text-decoration: none;
+            margin: 4px 8px;
+            font-weight: 600;
+            border-radius: 10px;
+        }
+        .links a:hover { background: #d1fae5; }
+        footer { text-align: center; color: rgba(255,255,255,0.85); margin-top: 30px; line-height: 1.6; }
+        .contact {
+            background: #fff8e6;
+            padding: 18px;
+            border-radius: 10px;
+            margin-top: 20px;
+            line-height: 1.7;
+        }
+        .contact a { color: #15803d; }
+        @media (max-width: 600px) {
+            .card { padding: 25px; }
+            h1 { font-size: 1.6em; }
+            h2 { font-size: 1.25em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="badge">📜 Documento Legal</div>
+            <h1>Termos de Uso</h1>
+            <p><strong>Data de vigência:</strong> 25 de outubro de 2026</p>
+
+            <h2>1. Aceitação</h2>
+            <p>
+                Ao instalar e usar o PandaNews, o usuário concorda integralmente com estes Termos de Uso e com a
+                <a href="privacy.html">Política de Privacidade</a>. Caso não concorde com qualquer disposição, o usuário
+                deve desinstalar e cessar o uso da ferramenta.
+            </p>
+
+            <h2>2. Descrição do Serviço</h2>
+            <p>
+                O PandaNews é uma ferramenta <strong>local</strong> (executada na máquina do usuário via <code>npx</code>)
+                para geração e automação de blogs de notícias com Inteligência Artificial: coleta de pautas em feeds RSS,
+                redação com LLMs multi-provedor (fallback NVIDIA NIM → Google Gemini), geração de imagens ilustrativas,
+                revisão humana e agendamento automático por blog.
+            </p>
+            <div class="alerta">
+                O serviço é fornecido <strong>"como está"</strong>, sem garantias de disponibilidade contínua, precisão
+                editorial ou adequação a fins específicos. A qualidade do conteúdo gerado depende dos modelos de IA e das
+                fontes configuradas pelo usuário.
+            </div>
+
+            <h2>3. Responsabilidades do usuário</h2>
+            <ul>
+                <li><strong>Conteúdo gerado:</strong> o usuário é o único responsável pelas notícias, imagens e textos produzidos, e pela verificação de sua veracidade antes de qualquer publicação.</li>
+                <li><strong>Chaves de API:</strong> o usuário responde pelas chaves que fornecer (NVIDIA NIM, Google Gemini, Supabase) e pelo cumprimento dos termos de uso de cada provedor, inclusive cotas, limites de uso e políticas de conteúdo.</li>
+                <li><strong>Curadoria das fontes RSS:</strong> o usuário garante que as fontes configuradas respeitam direitos autorais e não violam termos de terceiros.</li>
+                <li><strong>Proibições:</strong> é vedado usar o PandaNews para gerar ou difundir desinformação, difamação, discurso de ódio, spam, assédio ou qualquer conteúdo ilegal.</li>
+                <li><strong>Termos de plataformas:</strong> é vedado usar o PandaNews para violar os termos de uso das plataformas cujas APIs sejam integradas.</li>
+            </ul>
+
+            <h2>4. Limitação de responsabilidade</h2>
+            <p>O PandaNews e seu desenvolvedor <strong>não se responsabilizam</strong> por:</p>
+            <ul>
+                <li>Bloqueios, penalidades ou restrições impostas por plataformas externas (Google, NVIDIA, Supabase) em decorrência do uso das APIs;</li>
+                <li>Conteúdo gerado por IA que contenha imprecisões, vieses ou erros factuais — a revisão humana é etapa obrigatória e de responsabilidade do usuário;</li>
+                <li>Danos indiretos, lucros cessantes ou perda de dados decorrentes do uso da ferramenta;</li>
+                <li>Uso indevido das chaves de API do usuário por terceiros que tenham acesso à sua máquina.</li>
+            </ul>
+
+            <h2>5. Propriedade Intelectual</h2>
+            <ul>
+                <li>O código do PandaNews é de uso pessoal e <strong>não pode ser revendido ou redistribuído comercialmente</strong> sem autorização expressa do desenvolvedor.</li>
+                <li>O conteúdo gerado com IA pertence ao usuário, observadas as limitações e políticas de uso dos provedores de LLM e de imagem.</li>
+                <li>Os feeds RSS coletados são de propriedade de seus respectivos veículos; o usuário deve respeitar os termos de uso de cada fonte.</li>
+            </ul>
+
+            <h2>6. Proteção de dados</h2>
+            <p>
+                O tratamento de dados pelo PandaNews obedece à <a href="privacy.html">Política de Privacidade</a>, em
+                conformidade com a LGPD (Lei nº 13.709/2018). Por se tratar de aplicação local, os dados permanecem na
+                máquina do usuário, que exerce diretamente seus direitos de titular.
+            </p>
+
+            <h2>7. Alterações nos Termos</h2>
+            <p>
+                O desenvolvedor pode atualizar estes Termos a qualquer momento, publicando a nova versão no repositório.
+                O uso contínuo após alterações implica aceitação da versão vigente.
+            </p>
+
+            <h2>8. Foro</h2>
+            <p>
+                Fica eleito o foro da comarca do desenvolvedor (Brasil) para dirimir quaisquer controvérsias decorrentes
+                destes Termos, com renúncia expressa a qualquer outro, por mais privilegiado que seja.
+            </p>
+
+            <h2>9. Contato</h2>
+            <ul>
+                <!-- TODO: confirmar e-mail -->
+                <li>Por e-mail: <a href="mailto:danchannels96@gmail.com">danchannels96@gmail.com</a></li>
+            </ul>
+
+            <div class="links">
+                <a href="index.html">🏠 Voltar para Home</a>
+                <a href="privacy.html">🔒 Política de Privacidade</a>
+            </div>
+
+            <div class="contact">
+                <strong>📧 Desenvolvedor:</strong> Dan Hachuel<br>
+                <!-- TODO: confirmar e-mail -->
+                <strong>📩 Contato:</strong> <a href="mailto:danchannels96@gmail.com">danchannels96@gmail.com</a>
+            </div>
+        </div>
+        <footer>
+            <p>© 2026 PandaNews — Dan Hachuel</p>
+            <p>Este site é usado para verificação da aplicação junto aos provedores de API utilizados: Google Gemini, NVIDIA NIM e Supabase.</p>
+        </footer>
+    </div>
+</body>
+</html>

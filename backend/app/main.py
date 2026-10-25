@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.routers import automacao, blogs, configuracoes, dashboard, imagens, llm, logs, noticias
+from backend.app.routers import automacao, blogs, configuracoes, dashboard, imagens, legal, llm, logs, noticias
 from backend.core.database import SessionLocal, init_db
 from backend.core.llm_router import get_config
 
@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
     scheduler.parar()
 
 
-app = FastAPI(title="PandaNews API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="PandaNews API", version="0.3.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,6 +48,7 @@ app.include_router(noticias.router, prefix="/api/v1")
 app.include_router(imagens.router, prefix="/api/v1")
 app.include_router(automacao.router, prefix="/api/v1")
 app.include_router(logs.router, prefix="/api/v1")
+app.include_router(legal.router)  # /legal/* na raiz (URLs de verificação)
 
 
 @app.get("/api/v1/health")

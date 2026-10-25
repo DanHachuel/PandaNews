@@ -2,6 +2,13 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.3.01 (2026-10-25)
+
+- **Páginas legais e de verificação** em `legal/` (padrão AutoPost-Lunga, adaptado ao PandaNews): `index.html` (apresentação do app, funcionalidades e provedores de API), `terms.html` (Termos de Uso em pt-BR) e `privacy.html` (Política de Privacidade em conformidade com a LGPD — Lei 13.709/2018)
+- Backend serve as páginas em `/legal/index.html`, `/legal/terms.html` e `/legal/privacy.html` (whitelist de arquivos, servidos também via UI em `/legal/*` através do proxy)
+- Conteúdo específico do PandaNews: dados de configuração de blogs, feeds RSS, chaves de API locais (NVIDIA NIM, Google Gemini, Supabase), compartilhamento mínimo com provedores (apenas prompts/contexto editorial), direitos do titular exercidos localmente, armazenamento em SQLite (`data/pandanews.db`) e imagens em `data/imagens/`
+- `legal/` passa a fazer parte do tarball npm (`files`)
+
 ## 0.3.00 (2026-10-24)
 
 - **Pipeline de notícias completo** (Fase 3): coleta RSS (feedparser) → filtragem por relevância (palavras-chave do tema + bônus de região) → redação via LLM com fallback NVIDIA → Gemini (resposta em JSON: título, resumo, corpo) → imagem fotojornalística via Gemini Image salva em `data/imagens/`

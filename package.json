@@ -1,6 +1,6 @@
 {
   "name": "@danhachuel/pandanews",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "SaaS local de criação e automação de múltiplos blogs de notícias com IA (FastAPI + React + Tailwind).",
   "license": "MIT",
   "type": "module",
@@ -12,6 +12,7 @@
     "scripts/",
     "backend/",
     "frontend/dist/",
+    "legal/",
     "CHANGELOG.md",
     "README.md"
   ],
