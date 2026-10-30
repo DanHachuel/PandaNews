@@ -51,6 +51,8 @@ export interface Configuracoes {
   supabase_service_role_key: SecretInfo;
   scheduler_ativo: boolean;
   intervalo_padrao_horas: number;
+  meta_diaria: number;
+  supabase_detectado: boolean;
 }
 
 export interface Dashboard {
@@ -61,6 +63,8 @@ export interface Dashboard {
   noticias_pendentes: number;
   erros_total: number;
   scheduler_ativo: boolean;
+  meta_diaria: number;
+  faltam_meta: number;
   geracao_7dias: { data: string; total: number }[];
   ultimos_erros: LogItem[];
   onboarding: {

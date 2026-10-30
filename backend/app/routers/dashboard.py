@@ -45,6 +45,9 @@ def estatisticas(db: Session = Depends(get_db)) -> dict:
     }
     onboarding["concluidos"] = sum(1 for v in onboarding.values() if v)
 
+    meta = int(get_config(db, "meta_diaria", "3") or 3)
+    faltam_meta = max(0, meta - noticias_hoje)
+
     return {
         "blogs_total": blogs_total,
         "blogs_ativos": blogs_ativos,
@@ -53,6 +56,8 @@ def estatisticas(db: Session = Depends(get_db)) -> dict:
         "noticias_pendentes": noticias_pendentes,
         "erros_total": erros_total,
         "scheduler_ativo": get_config(db, "scheduler_ativo", "true") == "true",
+        "meta_diaria": meta,
+        "faltam_meta": faltam_meta,
         "geracao_7dias": geracao,
         "ultimos_erros": ultimos_erros,
         "onboarding": onboarding,

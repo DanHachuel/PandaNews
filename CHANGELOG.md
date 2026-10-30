@@ -2,6 +2,14 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.4.00 (2026-10-30)
+
+- **Supabase opcional (Fase 6)**: detecção automática de credenciais (`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` no ambiente ou em Configurações); teste de conexão real (`POST /configuracoes/testar-supabase`); schema SQL pronto para o SQL Editor (`GET /configuracoes/schema-supabase`); migração dos dados locais SQLite → Supabase (`POST /configuracoes/migrar-supabase`) com relatório por tabela. O app continua 100% local e funcional sem Supabase
+- **Meta diária** (Gradiente de Meta): card "Meta de hoje" no Dashboard com "faltam X notícias para bater a meta", barra de progresso e campo configurável em Configurações → Agendamento (`meta_diaria`)
+- **Breadcrumbs** em todas as telas internas (Lei de Jakob): Dashboard / Blogs, Dashboard / Notícias, etc.
+- **Configurações reformulada**: seção Banco de dados com status do backend ativo (SQLite local), detecção de credenciais, teste, schema SQL e migração — sem travas de pré-registro
+- Revisão das 7 leis de usabilidade: Fitts (CTAs ≥40px), Hick (menu 7 itens, wizard 3 passos, expanders), Zeigarnik (checklist + stepper + meta), Jakob (breadcrumbs, ações destrutivas isoladas), Gradiente de Meta (meta diária, gráfico 7 dias), von Restorff (CTA verde, badge âmbar de rascunho), Miller (blocos ≤7, datas pt-BR)
+
 ## 0.3.01 (2026-10-25)
 
 - **Páginas legais e de verificação** em `legal/` (padrão AutoPost-Lunga, adaptado ao PandaNews): `index.html` (apresentação do app, funcionalidades e provedores de API), `terms.html` (Termos de Uso em pt-BR) e `privacy.html` (Política de Privacidade em conformidade com a LGPD — Lei 13.709/2018)

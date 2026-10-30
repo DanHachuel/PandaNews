@@ -37,7 +37,38 @@ def obter_configuracoes(db: Session = Depends(get_db)) -> dict:
         "supabase_service_role_key": _mask(get_config(db, "supabase_service_role_key")),
         "scheduler_ativo": get_config(db, "scheduler_ativo", "true") == "true",
         "intervalo_padrao_horas": int(get_config(db, "intervalo_padrao_horas", "6") or 6),
+        "meta_diaria": int(get_config(db, "meta_diaria", "3") or 3),
+        "supabase_detectado": bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+        or bool(get_config(db, "supabase_url") and get_config(db, "supabase_service_role_key")),
     }
+
+
+@router.post("/testar-supabase")
+def testar_supabase() -> dict:
+    from backend.core import supabase_db
+
+    try:
+        cred = supabase_db.obter_credenciais()
+        return {**supabase_db.testar_conexao(), "credencial_em": cred["origem"]}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "detail": str(exc)[:400]}
+
+
+@router.get("/schema-supabase")
+def schema_supabase() -> dict:
+    from backend.core import supabase_db
+
+    return {"sql": supabase_db.SCHEMA_SQL}
+
+
+@router.post("/migrar-supabase")
+def migrar_supabase() -> dict:
+    from backend.core import supabase_db
+
+    try:
+        return supabase_db.migrar_do_sqlite()
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "detail": str(exc)[:400]}
 
 
 @router.put("")

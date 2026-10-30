@@ -75,6 +75,26 @@ export function Dashboard() {
         <Stat label="Erros registrados" value={data.erros_total} hint="pipeline e blogs" />
       </div>
 
+      {/* Gradiente de Meta: meta diária com "faltam X notícias" */}
+      <Card>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="font-bold">Meta de hoje</h2>
+          <Badge tone={data.faltam_meta > 0 ? 'green' : 'blue'}>
+            {data.faltam_meta > 0 ? `faltam ${data.faltam_meta} para bater a meta` : 'meta batida! 🎉'}
+          </Badge>
+        </div>
+        <div className="mb-2 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+          <div
+            className="h-full rounded-full bg-panda transition-all"
+            style={{ width: `${Math.min(100, (data.noticias_hoje / Math.max(1, data.meta_diaria)) * 100)}%` }}
+          />
+        </div>
+        <p className="text-sm text-slate-500">
+          {data.noticias_hoje} de {data.meta_diaria} notícia(s) gerada(s) hoje — configure a meta em Configurações →
+          Agendamento.
+        </p>
+      </Card>
+
       {/* Gradiente de Meta: geração nos últimos 7 dias */}
       <Card>
         <div className="mb-4 flex items-center justify-between">

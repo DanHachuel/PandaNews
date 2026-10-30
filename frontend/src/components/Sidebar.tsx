@@ -41,7 +41,7 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <div className="px-5 py-4 text-[11px] text-slate-400 dark:text-slate-600">100% local · SQLite · v0.2.00</div>
+      <div className="px-5 py-4 text-[11px] text-slate-400 dark:text-slate-600">100% local · SQLite · v0.4.00</div>
     </aside>
   );
 }

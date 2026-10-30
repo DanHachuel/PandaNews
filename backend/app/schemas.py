@@ -51,6 +51,7 @@ class ConfiguracoesPatch(BaseModel):
     db_backend: Optional[str] = None
     scheduler_ativo: Optional[bool] = None
     intervalo_padrao_horas: Optional[int] = Field(default=None, ge=1, le=168)
+    meta_diaria: Optional[int] = Field(default=None, ge=0, le=100)
 
 
 class LlmTestIn(BaseModel):
