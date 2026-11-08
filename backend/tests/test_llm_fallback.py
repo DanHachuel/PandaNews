@@ -13,8 +13,10 @@ Cobre exatamente o que a correção promete:
 """
 from __future__ import annotations
 
+import json
 import logging
 import sys
+import types
 from datetime import timedelta as _timedelta
 from pathlib import Path
 
@@ -165,7 +167,7 @@ resultado_410 = _testar_com_resposta(
 check(resultado_410["ok"] is False, "test_provider: HTTP 410 -> ok=False")
 check(resultado_410.get("degraded") is True, "test_provider: HTTP 410 -> degraded=True (fallback avisa)")
 check(
-    "fim da vida" in resultado_410["detail"] or "410" in resultado_410["detail"],
+    "fim de vida" in resultado_410["detail"] or "410" in resultado_410["detail"],
     "test_provider: a string de erro do provedor volta no JSON para a tela",
 )
 
@@ -179,6 +181,67 @@ resultado_500 = _testar_com_resposta(500, "internal error")
 check(
     "HTTP 500" in resultado_500["detail"],
     "test_provider: HTTP 500 -> código e corpo devolvidos ao frontend",
+)
+
+# ------------------------------------ 3b) E2E pelo caminho HTTP real (Chamar)
+
+# Diferente dos cenários acima (que trocam `chamar_provedor` por um dublê),
+# aqui só o `httpx.Client` é substituído: `chamar_provedor`, a construção da
+# URL, os headers e o `raise_for_status` rodam de verdade. A NVIDIA devolve
+# 410 e o Gemini devolve 200 — a notícia tem de nascer do Gemini.
+llm_router.chamar_provedor = original_chamar
+
+
+class _RespostaHttp:
+    def __init__(self, status_code: int, corpo: dict) -> None:
+        self.status_code = status_code
+        self._corpo = corpo
+        self.text = json.dumps(corpo)
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}: {self.text}")
+
+    def json(self) -> dict:
+        return self._corpo
+
+
+def _post_e2e(self, endpoint, headers=None, json=None):
+    # distingue pelo modelo pedido: nvidia (410) vs google/gemini (200)
+    modelo = (json or {}).get("model", "")
+    if "gemini" in modelo:
+        return _RespostaHttp(
+            200,
+            {"choices": [{"message": {"content": '{"titulo":"T","resumo":"R","corpo":"C"}'}}], "model": modelo},
+        )
+    return _RespostaHttp(410, {"detail": "The model has reached its end of life"})
+
+
+class _ClientE2E:
+    def __init__(self, *a, **k) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def post(self, endpoint, headers=None, json=None):
+        return _post_e2e(self, endpoint, headers, json)
+
+
+llm_router.httpx.Client = _ClientE2E
+
+registros.clear()
+
+texto_e2e, provedor_e2e = llm_router.gerar_texto(_db_com_chaves(), "escreva uma noticia")
+
+check(provedor_e2e == "gemini", "E2E HTTP: NVIDIA 410 -> Gemini assume (provedor: gemini)")
+check("titulo" in texto_e2e, "E2E HTTP: o conteúdo devolvido é o do Gemini (JSON utilizável)")
+check(
+    any("Erro na NVIDIA (" in m and "Acionando Google Gemini" in m for m in registros),
+    "E2E HTTP: log 'Erro na NVIDIA (...). Acionando Google Gemini...' emitido",
 )
 
 # ------------------------------------------- 4) endpoint replicado do Thunderbolt

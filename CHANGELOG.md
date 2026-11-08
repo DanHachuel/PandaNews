@@ -2,6 +2,11 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.4.10 (2026-11-08)
+
+- **Cobertura E2E pelo caminho HTTP real**: o teste de fallback ganhou um cenário que substitui apenas o `httpx.Client` — `chamar_provedor`, a construção da URL, os headers e o `raise_for_status` rodam de verdade. A NVIDIA devolve 410, o Gemini devolve 200 e a notícia nasce do Gemini com o log `Erro na NVIDIA (...). Acionando Google Gemini...` emitido. Fecha a lacuna de testar só a função mockada
+- Teste sobe para 16 verificações, todas verdes local e no CI
+
 ## 0.4.09 (2026-11-08)
 
 - **Frontend — Gemini tratado como a NVIDIA no teste de conexão**: o badge agora distingue `degraded` (âmbar, modelo em fim de vida 404/410) de `falhou` (vermelho) e a mensagem de detalhe usa a cor correspondente. Antes um 404/410 do Gemini aparecia como "falhou" vermelho — agora o usuário entende que é o modelo, não a chave, e que a geração segue pela NVIDIA
