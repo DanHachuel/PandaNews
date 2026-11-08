@@ -55,6 +55,7 @@ class Noticia(Base):
     imagem_url: Mapped[str] = mapped_column(String(500), default="")
     status: Mapped[str] = mapped_column(String(20), default="rascunho", index=True)
     llm_provider: Mapped[str] = mapped_column(String(50), default="")
+    wordpress_post_id: Mapped[int | None] = mapped_column(nullable=True)
     fonte_url: Mapped[str] = mapped_column(String(600), default="")
     fonte_titulo: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
@@ -105,6 +106,7 @@ def _migrate() -> None:
         for coluna, ddl in (
             ("fonte_url", "VARCHAR(600) DEFAULT ''"),
             ("fonte_titulo", "TEXT DEFAULT ''"),
+            ("wordpress_post_id", "INTEGER"),
         ):
             if coluna not in colunas:
                 conn.execute(text(f"ALTER TABLE noticias ADD COLUMN {coluna} {ddl}"))

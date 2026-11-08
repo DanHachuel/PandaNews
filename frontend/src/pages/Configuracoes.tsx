@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiSend } from '../lib/api';
-import type { Configuracoes } from '../lib/types';
+import type { Configuracoes, WordPressStatus } from '../lib/types';
 import { Badge, Button, Card, Expander, Field, inputClass } from '../components/ui';
 
 type TestResult = { ok: boolean; detail?: string; latency_ms?: number; model?: string; degraded?: boolean; status?: number; endpoint?: string };
@@ -15,7 +15,12 @@ export function Configuracoes() {
     queryFn: () => apiGet<Configuracoes>('/configuracoes'),
   });
 
-  const [secrets, setSecrets] = useState({ nvidia_api_key: '', google_api_key: '', supabase_service_role_key: '' });
+  const [secrets, setSecrets] = useState({
+    nvidia_api_key: '',
+    google_api_key: '',
+    supabase_service_role_key: '',
+    wordpress_app_password: '',
+  });
   const [form, setForm] = useState({
     nvidia_base_url: '',
     nvidia_model: '',
@@ -25,10 +30,21 @@ export function Configuracoes() {
     supabase_url: '',
     intervalo_padrao_horas: 6,
     meta_diaria: 3,
+    wordpress_url: '',
+    wordpress_user: '',
   });
   const [testes, setTestes] = useState<Record<string, TestResult>>({});
   const [msg, setMsg] = useState('');
   const [schemaSql, setSchemaSql] = useState('');
+
+  // Integração WordPress (estado vem do endpoint próprio — sem depender do GET geral)
+  const { data: wpStatus } = useQuery({
+    queryKey: ['wordpress-status'],
+    queryFn: () => apiGet<WordPressStatus>('/wordpress/status'),
+  });
+  const testarWp = useMutation({
+    mutationFn: () => apiSend<TestResult>('/wordpress/testar', 'POST'),
+  });
 
   useEffect(() => {
     if (!config) return;
@@ -41,16 +57,19 @@ export function Configuracoes() {
       supabase_url: config.supabase_url,
       intervalo_padrao_horas: config.intervalo_padrao_horas,
       meta_diaria: config.meta_diaria,
+      wordpress_url: wpStatus?.url ?? '',
+      wordpress_user: wpStatus?.user ?? '',
     });
-  }, [config]);
+  }, [config, wpStatus]);
 
   const salvar = useMutation({
     mutationFn: (payload: Record<string, unknown>) => apiSend<Configuracoes>('/configuracoes', 'PUT', payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['configuracoes'] });
+      queryClient.invalidateQueries({ queryKey: ['wordpress-status'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setMsg('Configurações salvas com sucesso.');
-      setSecrets({ nvidia_api_key: '', google_api_key: '', supabase_service_role_key: '' });
+      setSecrets({ nvidia_api_key: '', google_api_key: '', supabase_service_role_key: '', wordpress_app_password: '' });
     },
     onError: (e: Error) => setMsg(`Falha ao salvar: ${e.message}`),
   });
@@ -98,6 +117,7 @@ export function Configuracoes() {
     if (secrets.nvidia_api_key.trim()) payload.nvidia_api_key = secrets.nvidia_api_key.trim();
     if (secrets.google_api_key.trim()) payload.google_api_key = secrets.google_api_key.trim();
     if (secrets.supabase_service_role_key.trim()) payload.supabase_service_role_key = secrets.supabase_service_role_key.trim();
+    if (secrets.wordpress_app_password.trim()) payload.wordpress_app_password = secrets.wordpress_app_password.trim();
     setMsg('');
     salvar.mutate(payload);
   }
@@ -358,6 +378,58 @@ export function Configuracoes() {
               />
             </Field>
           </div>
+        </Expander>
+
+        {/* Integração WordPress — publicação das notícias aprovadas (Fase 0.5.00) */}
+        <Expander title="Integração WordPress">
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <Badge tone={wpStatus?.configurado ? 'green' : 'neutral'}>
+              {wpStatus?.configurado ? 'WordPress configurado' : 'credenciais não configuradas'}
+            </Badge>
+            {wpStatus?.url && <Badge tone="blue">{wpStatus.url}</Badge>}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="URL do WordPress" hint="Ex.: https://seublog.com.br (sem barra no final)">
+              <input
+                className={inputClass}
+                value={form.wordpress_url}
+                onChange={(e) => setForm({ ...form, wordpress_url: e.target.value })}
+                placeholder="https://seublog.com.br"
+              />
+            </Field>
+            <Field label="Usuário">
+              <input
+                className={inputClass}
+                value={form.wordpress_user}
+                onChange={(e) => setForm({ ...form, wordpress_user: e.target.value })}
+                placeholder="admin"
+              />
+            </Field>
+            <Field label="Senha de Aplicativo" hint="Gerada no painel do WordPress (Usuários → Perfil → Senhas de aplicativo)">
+              <input
+                type="password"
+                className={inputClass}
+                value={secrets.wordpress_app_password}
+                onChange={(e) => setSecrets({ ...secrets, wordpress_app_password: e.target.value })}
+                placeholder={wpStatus?.password_configured ? '•••• configurada — deixe vazio para manter' : 'Não configurada'}
+              />
+            </Field>
+            <div className="flex items-end gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => testarWp.mutate()}
+                disabled={testarWp.isPending || !wpStatus?.configurado}
+                title={wpStatus?.configurado ? 'GET /wp-json/wp/v2/users/me' : 'Salve as credenciais antes de testar'}
+              >
+                Testar Conexão
+              </Button>
+              {testarWp.data && (
+                <Badge tone={testarWp.data.ok ? 'green' : 'red'}>{testarWp.data.ok ? 'ok' : 'falhou'}</Badge>
+              )}
+            </div>
+          </div>
+          {testarWp.data && !testarWp.data.ok && <p className="mt-3 text-xs text-red-400">{testarWp.data.detail}</p>}
+          {testarWp.data?.ok && <p className="mt-3 text-xs text-panda">{testarWp.data.detail}</p>}
         </Expander>
       </div>
 

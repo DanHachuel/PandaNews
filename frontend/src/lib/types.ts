@@ -26,6 +26,7 @@ export interface Noticia {
   llm_provider: string;
   fonte_url?: string;
   fonte_titulo?: string;
+  wordpress_post_id?: number | null;
   created_at: string;
 }
 
@@ -92,4 +93,11 @@ export interface AutomacaoJob {
 export interface AutomacaoStatus {
   ativo: boolean;
   jobs: AutomacaoJob[];
+}
+
+export interface WordPressStatus {
+  configurado: boolean;
+  url: string;
+  user: string;
+  password_configured: boolean;
 }

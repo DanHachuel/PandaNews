@@ -39,6 +39,53 @@ function venvBin(home) {
     : join(home, '.runtime', 'venv', 'bin', 'python');
 }
 
+// ------------------------------------------------------------------------
+// JANELAS DE CONSOLE NO WINDOWS — porque subimos o python BASE e não o venv
+//
+// Medido neste repositório (spawn com detached + windowsHide, stdio no
+// arquivo): `venv/Scripts/python.exe` das distribuições python-build-
+// standalone é um REDIRECIONADOR — ele re-executa o interpretador real
+// (`runtime/python/python.exe`) e esse NETO nasce SEM as flags de
+// ocultação do pai. O Windows então aloca um console NOVO para o neto:
+// 1 processo filho + 1 hospedeiro de console (conhost/WindowsTerminal)
+// novos, ou seja, uma janela de terminal na cara do usuário.
+//
+// Subindo o interpretador base diretamente, com o site-packages do venv no
+// PYTHONPATH, temos um ÚNICO processo: 0 filhos, 0 console novo. As
+// dependências são exatamente as mesmas (verificado: import do app inteiro
+// com o python base + PYTHONPATH).
+//
+// No Unix o `venv/bin/python` é um symlink para o base — sem redirector,
+// sem neto —, então lá seguimos usando o venv normalmente.
+// ------------------------------------------------------------------------
+function baseBin(home) {
+  return process.platform === 'win32'
+    ? join(home, '.runtime', 'python', 'python.exe')
+    : null;
+}
+
+function venvSitePackages(home) {
+  return join(home, '.runtime', 'venv', 'Lib', 'site-packages');
+}
+
+function pythonBin(home) {
+  if (process.platform === 'win32') {
+    const base = baseBin(home);
+    if (base && existsSync(base)) return base;
+  }
+  return venvBin(home);
+}
+
+function pythonEnv(home) {
+  const env = { ...process.env, PANDANEWS_HOME: home, PYTHONUNBUFFERED: '1' };
+  if (process.platform === 'win32') {
+    // python base só enxerga as dependências do venv via PYTHONPATH
+    const site = venvSitePackages(home);
+    if (existsSync(site)) env.PYTHONPATH = site;
+  }
+  return env;
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -84,10 +131,16 @@ async function findFreePort(base, maxTries) {
 }
 
 // Encerra o processo por PID e (no Windows) a árvore de processos /T.
+// Corre SEMPRE silenciosamente: windowsHide + stdio ignore — um taskkill
+// que piscasse uma janela de console negaria a regra permanente do projeto.
 function encerrarPorPid(pid, motivo) {
   try {
     if (process.platform === 'win32') {
-      spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { windowsHide: true, detached: true });
+      spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], {
+        windowsHide: true, // CREATE_NO_WINDOW — sem tela preta
+        detached: true, // grupo isolado, imune a Ctrl+C do console
+        stdio: 'ignore', // taskkill não escreve no terminal do launcher
+      });
     } else {
       process.kill(pid, 'SIGTERM');
     }
@@ -223,6 +276,8 @@ async function esperarBackend(port) {
 
 // Sobe o uvicorn em grupo de processos próprio: detached (novo grupo no
 // Windows), windowsHide (sem janela preta) e stdio direto no arquivo de log.
+// No Windows sobe o interpretador BASE + PYTHONPATH do venv — um único
+// processo, sem o redirector que abria a janela de console (ver pythonBin).
 async function startBackend(home) {
   const port = await findFreePort(API_PORT_BASE, PORT_MAX_TRIES);
   if (port !== API_PORT_BASE) {
@@ -238,14 +293,14 @@ async function startBackend(home) {
 
   console.log(`Iniciando backend FastAPI em http://127.0.0.1:${port} ... (log: ${logPath})`);
   const python = spawn(
-    venvBin(home),
+    pythonBin(home),
     ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(port)],
     {
       cwd: PKG_ROOT,
       detached: true, // CREATE_NEW_PROCESS_GROUP no Windows — imune a Ctrl+C do console
       windowsHide: true, // sem janela de console fantasma
       stdio: ['ignore', logFd, logFd], // saída direto no arquivo (append) — não herda console
-      env: { ...process.env, PANDANEWS_HOME: home, PYTHONUNBUFFERED: '1' },
+      env: pythonEnv(home),
     },
   );
   closeSync(logFd); // o filho tem sua própria cópia herdada
@@ -269,22 +324,67 @@ async function startBackend(home) {
 }
 
 // Watchdog de saúde: spawn destacado não emite eventos de exit confiáveis —
-// a porta é polidada a cada 10s e 3 falhas consecutivas reerguem o backend.
+// a porta é polidada a cada 10s. FALHAS_PARA_REINICIAR leituras ruins
+// consecutivas disparam um reinício, mas no MÁXIMO MAX_REINICIOS vezes:
+// sem essa trava, um backend que não consegue subir de jeito nenhum (porta
+// tomada por órfão, dependência quebrada) viraria um loop infinito de spawns
+// — e cada spawn no Windows é candidato a uma janela de console.
+const FALHAS_PARA_REINICIAR = 3;
+const MAX_REINICIOS = 3;
+
 let falhasSaude = 0;
+let reinicios = 0; // tentativas de reinício mal-sucedidas EM SEQUÊNCIA
+
 function iniciarWatchdog(home) {
-  setInterval(async () => {
+  const timer = setInterval(async () => {
     if (await portaAberta(activeBackendPort)) {
+      //backend respondendo: zera as duas contagens (queda pontual não punida)
       falhasSaude = 0;
+      reinicios = 0;
       return;
     }
+
     falhasSaude += 1;
-    if (falhasSaude >= 3) {
-      console.error('Backend não responde — reiniciando...');
-      falhasSaude = 0;
-      backendPid = null;
-      await startBackend(home);
+    if (falhasSaude < FALHAS_PARA_REINICIAR) return;
+
+    // --- teto de tentativas atingido: para tudo em vez de loop infinito ---
+    if (reinicios >= MAX_REINICIOS) {
+      clearInterval(timer);
+      // encerra o backend zumbi por código, silenciosamente
+      if (backendPid) encerrarPorPid(backendPid, `Backend (PID ${backendPid}) encerrado após ${MAX_REINICIOS} falhas.`);
+      console.error('');
+      console.error(`O backend não respondeu em http://127.0.0.1:${activeBackendPort} após ${MAX_REINICIOS} tentativas de reinício.`);
+      console.error('O launcher está sendo encerrado para não entrar em loop infinito.');
+      console.error(`Diagnóstico completo em: ${join(home, 'data', 'backend.log')}`);
+      console.error('Se a porta estiver ocupada por outra instância, encerre-a ou defina PANDANEWS_API_PORT.');
+      process.exit(1);
+      return;
     }
-  }, 10000).unref();
+
+    falhasSaude = 0;
+
+    // --- reaproveita backend vivo em vez de empilhar outra instância ---
+    // backend duplicado era o que fazia a porta "morrer" para o proxy e
+    // disparava reinício atrás de reinício.
+    const existente = await backendJaRodando(home);
+    if (existente) {
+      console.log(`Backend já em execução (PID ${existente.pid}) na porta ${existente.port} — reaproveitando (sem subir outra instância).`);
+      activeBackendPort = existente.port;
+      backendPid = null;
+      return;
+    }
+
+    // --- reinício ---
+    reinicios += 1;
+    console.error(`Backend não responde — reiniciando... (tentativa ${reinicios} de ${MAX_REINICIOS})`);
+    backendPid = null;
+    const subiu = await startBackend(home);
+    if (subiu) {
+      // conseguiu subir: a próxima leitura saudável zera o contador
+      console.log('Backend reerguido pelo watchdog.');
+    }
+  }, 10000);
+  timer.unref();
 }
 
 // ---------------------------------------------------------------- execução

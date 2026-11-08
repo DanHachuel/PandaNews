@@ -52,6 +52,9 @@ class ConfiguracoesPatch(BaseModel):
     scheduler_ativo: Optional[bool] = None
     intervalo_padrao_horas: Optional[int] = Field(default=None, ge=1, le=168)
     meta_diaria: Optional[int] = Field(default=None, ge=0, le=100)
+    wordpress_url: Optional[str] = None
+    wordpress_user: Optional[str] = None
+    wordpress_app_password: Optional[str] = None
 
 
 class LlmTestIn(BaseModel):

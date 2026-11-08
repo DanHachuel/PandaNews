@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.schemas import NoticiaPatch, STATUS_NOTICIA
-from backend.core.database import Noticia, get_db
+from backend.core.database import Log, Noticia, get_db
 
 router = APIRouter(prefix="/noticias", tags=["noticias"])
 
@@ -26,6 +26,7 @@ def _serializar(n: Noticia) -> dict:
         "imagem_url": n.imagem_url,
         "status": n.status,
         "llm_provider": n.llm_provider,
+        "wordpress_post_id": n.wordpress_post_id,
         "fonte_url": n.fonte_url,
         "fonte_titulo": n.fonte_titulo,
         "created_at": n.created_at,
@@ -43,6 +44,46 @@ def gerar_noticia(payload: GerarIn) -> dict:
             detail="Nenhuma notícia nova: sem itens nas fontes, todos já utilizados ou erro na geração — verifique os Logs.",
         )
     return _serializar(noticia)
+
+
+@router.post("/{noticia_id}/publicar")
+def publicar_noticia(noticia_id: int, db: Session = Depends(get_db)) -> dict:
+    """Publica a notícia no WordPress configurado (imagem + categoria)."""
+    from backend.core import wordpress_publisher
+
+    noticia = db.get(Noticia, noticia_id)
+    if noticia is None:
+        raise HTTPException(status_code=404, detail="Notícia não encontrada")
+    if noticia.wordpress_post_id:
+        raise HTTPException(status_code=400, detail="Já publicado no WordPress.")
+    palavras = wordpress_publisher.contar_palavras(noticia.corpo)
+    if palavras < wordpress_publisher.MINIMO_PALAVRAS_PUBLICACAO:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Texto com {palavras} palavras — mínimo de "
+                f"{wordpress_publisher.MINIMO_PALAVRAS_PUBLICACAO} para publicar (diretriz AdSense). "
+                "Regere a notícia ou edite o corpo antes de publicar."
+            ),
+        )
+    try:
+        resultado = wordpress_publisher.publish_to_wordpress(db, noticia)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    noticia.status = "publicado"
+    noticia.wordpress_post_id = resultado["post_id"]
+    db.add(
+        Log(
+            blog_id=noticia.blog_id,
+            etapa="publicacao",
+            status="sucesso",
+            mensagem=f"Publicado no WordPress (post {resultado['post_id']}): {resultado['link']}",
+        )
+    )
+    db.commit()
+    db.refresh(noticia)
+    return {"ok": True, "post_id": resultado["post_id"], "link": resultado["link"], "noticia": _serializar(noticia)}
 
 
 @router.post("/{noticia_id}/regenerar")

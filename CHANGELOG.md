@@ -2,6 +2,14 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.5.00 (2026-11-08)
+
+- **Módulo Publicador WordPress** (preparação para monetização AdSense): credenciais `wordpress_url` / `wordpress_user` / `wordpress_app_password` salvas no banco local e mascaradas no frontend; coluna `noticias.wordpress_post_id` (com migração leve para bancos existentes)
+- `backend/core/wordpress_publisher.py`: teste de conexão real (`GET /wp-json/wp/v2/users/me`), upload de imagem em 2 etapas (`POST /wp-json/wp/v2/media` → `featured_media`) e criação do post (`POST /wp-json/wp/v2/posts`, `status: publish`, categoria resolvida pelo tema do blog — busca ou cria)
+- Endpoint `POST /api/v1/noticias/{id}/publicar`: bloqueia republicação (400 "Já publicado"), exige **mínimo de 300 palavras** (diretriz AdSense), grava `status=publicado` + `wordpress_post_id` e devolve o link do post; `GET /api/v1/wordpress/status` + `POST /api/v1/wordpress/testar`
+- Frontend: seção **Integração WordPress** em Configurações (URL, usuário, senha de aplicativo mascarada, Testar Conexão com estado) e botão **🌐 Publicar no WordPress** nos cards de notícias — loading durante o envio, badge "Publicado" + link "Ver no site" após o sucesso
+- **Diretriz rígida AdSense no prompt do LLM**: "O texto final deve ter no mínimo 1500 palavras. Expanda o contexto, traga implicações e detalhes para criar um artigo profundo e otimizado para SEO. Nunca gere textos com menos de 1000 palavras." — teto de tokens da redação elevado para 4000
+
 ## 0.4.10 (2026-11-08)
 
 - **Cobertura E2E pelo caminho HTTP real**: o teste de fallback ganhou um cenário que substitui apenas o `httpx.Client` — `chamar_provedor`, a construção da URL, os headers e o `raise_for_status` rodam de verdade. A NVIDIA devolve 410, o Gemini devolve 200 e a notícia nasce do Gemini com o log `Erro na NVIDIA (...). Acionando Google Gemini...` emitido. Fecha a lacuna de testar só a função mockada

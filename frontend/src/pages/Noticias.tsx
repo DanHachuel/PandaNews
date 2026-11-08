@@ -14,6 +14,8 @@ export function Noticias() {
   const [editando, setEditando] = useState<Noticia | null>(null);
   const [form, setForm] = useState({ titulo: '', resumo: '', corpo: '' });
   const [erro, setErro] = useState('');
+  const [publicandoId, setPublicandoId] = useState<number | null>(null);
+  const [pubResultado, setPubResultado] = useState<Record<number, { ok: boolean; link?: string; detail?: string }>>({});
 
   const { data: blogs } = useQuery({ queryKey: ['blogs'], queryFn: () => apiGet<Blog[]>('/blogs') });
   const { data: noticias, isLoading } = useQuery({
@@ -54,6 +56,19 @@ export function Noticias() {
       queryClient.invalidateQueries({ queryKey: ['noticias'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     },
+  });
+
+  const publicar = useMutation({
+    mutationFn: (id: number) => apiSend<{ ok: boolean; link?: string; detail?: string }>(`/noticias/${id}/publicar`, 'POST'),
+    onMutate: (id) => setPublicandoId(id),
+    onSuccess: (dados, id) => {
+      setPubResultado((r) => ({ ...r, [id]: dados }));
+      queryClient.invalidateQueries({ queryKey: ['noticias'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['logs'] });
+    },
+    onError: (e: Error, id) => setPubResultado((r) => ({ ...r, [id]: { ok: false, detail: e.message } })),
+    onSettled: () => setPublicandoId(null),
   });
 
   return (
@@ -108,6 +123,18 @@ export function Noticias() {
                 n.status === 'rascunho' && <Badge tone="amber">sem imagem</Badge>
               )}
               <div className="mt-4 flex flex-wrap justify-end gap-2">
+                {n.wordpress_post_id ? (
+                  <Badge tone="blue">🌐 Publicado no WordPress</Badge>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    onClick={() => publicar.mutate(n.id)}
+                    disabled={publicar.isPending}
+                    title="Enviar para o WordPress configurado (imagem + categoria)"
+                  >
+                    {publicandoId === n.id ? 'Publicando…' : '🌐 Publicar no WordPress'}
+                  </Button>
+                )}
                 {n.fonte_titulo && (
                   <Button variant="secondary" onClick={() => regenerar.mutate(n.id)} disabled={regenerar.isPending} title="Re-escrever a partir da fonte original">
                     ↻ Regenerar
@@ -128,6 +155,22 @@ export function Noticias() {
                 </Button>
                 <Button onClick={() => patch.mutate({ id: n.id, body: { status: 'aprovado' } })}>Aprovar</Button>
               </div>
+              {pubResultado[n.id]?.ok && pubResultado[n.id]?.link && (
+                <div className="mt-3 rounded-lg border border-panda/40 bg-panda/10 p-3 text-sm">
+                  <span className="text-panda">Publicado com sucesso! </span>
+                  <a
+                    href={pubResultado[n.id].link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold text-panda underline"
+                  >
+                    Ver no site →
+                  </a>
+                </div>
+              )}
+              {pubResultado[n.id] && !pubResultado[n.id].ok && (
+                <p className="mt-3 text-xs text-red-400">{pubResultado[n.id].detail}</p>
+              )}
             </Card>
           ))}
         </div>

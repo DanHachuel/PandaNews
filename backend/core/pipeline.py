@@ -93,6 +93,9 @@ def _prompt_redacao(blog: Blog, item: dict) -> str:
         f"Resumo da fonte: {item['resumo']}\n"
         "Regras: reescreva com palavras próprias; não invente fatos que não estejam "
         "na fonte; 3 a 5 parágrafos.\n"
+        "DIRETRIZ RÍGIDA (AdSense): o texto final deve ter no mínimo 1500 palavras. "
+        "Expanda o contexto, traga implicações e detalhes para criar um artigo profundo "
+        "e otimizado para SEO. Nunca gere textos com menos de 1000 palavras.\n"
         'Responda SOMENTE com JSON válido no formato: {"titulo": "...", "resumo": "...", "corpo": "..."}'
     )
 
@@ -140,9 +143,10 @@ def gerar_noticia(blog_id: int) -> Noticia | None:
         novos.sort(key=lambda i: score_relevancia(i, blog), reverse=True)
         item = novos[0]
 
-        # 3. Redação via LLM (fallback NVIDIA -> Gemini)
+        # 3. Redação via LLM (fallback NVIDIA -> Gemini) — teto alto p/ diretriz
+        # AdSense (mínimo 1500 palavras)
         try:
-            resposta, provedor = llm_router.gerar_texto(db, _prompt_redacao(blog, item), max_tokens=1600)
+            resposta, provedor = llm_router.gerar_texto(db, _prompt_redacao(blog, item), max_tokens=4000)
         except Exception as exc:  # noqa: BLE001
             _log(db, blog.id, "redacao", "erro", f"Falha na redação: {exc}")
             return None
