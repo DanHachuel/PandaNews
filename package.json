@@ -1,6 +1,6 @@
 {
   "name": "@danhachuel/pandanews",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "SaaS local de criação e automação de múltiplos blogs de notícias com IA (FastAPI + React + Tailwind).",
   "license": "MIT",
   "type": "module",
@@ -20,7 +20,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build:frontend": "node scripts/build.js"
+    "build:frontend": "node scripts/build.js",
+    "test": "node scripts/test-start-isolation.mjs"
   },
   "repository": {
     "type": "git",

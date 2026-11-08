@@ -63,6 +63,9 @@ jobs:
       - name: Build frontend
         run: node scripts/build.js
 
+      - name: Test process isolation (start.js)
+        run: node scripts/test-start-isolation.mjs
+
       - name: Smoke test launcher install
         run: |
           TEST_ROOT="${RUNNER_TEMP}/pandanews-install-smoke"

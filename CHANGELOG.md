@@ -2,6 +2,15 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.4.01 (2026-11-08)
+
+- **Isolamento de processos (Windows/MobaXterm)**: o backend Python roda em grupo de processos próprio (`detached: true` → `CREATE_NEW_PROCESS_GROUP`) com `windowsHide: true` (sem janela fantasma) e `stdio` em fd do arquivo — um Ctrl+C no terminal agora derruba **apenas o launcher Node**; o backend e as gerações em andamento sobrevivem
+- **Fim do processo órfão na porta 8000**: ao reabrir o app, o launcher detecta o backend vivo (`backend.pid` + probe de porta) e o **reaproveita**, em vez de subir uma segunda instância
+- **Log sem terminal**: a inicialização do uvicorn e as requisições ficam registradas em `data/backend.log` mesmo com o terminal fechado (auditoria preservada)
+- Encerramento do backend **sempre por código**: `taskkill /PID /F /T` no Windows, `kill` no grupo no Unix — sinais do terminal nunca chegam ao backend
+- `unref()` no processo filho + watchdog de saúde (polling de porta a cada 10s; 3 falhas reerguem o backend silenciosamente)
+- Teste de regressão `scripts/test-start-isolation.mjs` (`npm test`) roda no CI verificando as flags de isolamento — passo adicionado ao workflow de publish
+
 ## 0.4.00 (2026-10-30)
 
 - **Supabase opcional (Fase 6)**: detecção automática de credenciais (`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` no ambiente ou em Configurações); teste de conexão real (`POST /configuracoes/testar-supabase`); schema SQL pronto para o SQL Editor (`GET /configuracoes/schema-supabase`); migração dos dados locais SQLite → Supabase (`POST /configuracoes/migrar-supabase`) com relatório por tabela. O app continua 100% local e funcional sem Supabase
