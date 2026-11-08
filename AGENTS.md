@@ -34,6 +34,10 @@ Sempre que uma sessão de agente criar commits, o ramo deve ser enviado de imedi
 
 Uma versão que exiba qualquer janela de console no computador do usuário é **inválida**: deve ser corrigida antes da publicação ou imediatamente depois (hotfix), com a entrada correspondente no CHANGELOG. O teste `scripts/test-start-isolation.mjs` (rodado no CI) falha o build se qualquer spawn do launcher perder `windowsHide: true` ou `detached: true`.
 
+**Armadilha do redirector do venv (Windows)** — `windowsHide: true` no spawn do launcher **não basta** quando o binário lançado é o `venv/Scripts/python.exe` das distribuições python-build-standalone: esse executável é um *redirector* que re-executa o interpretador real (`.runtime/python/python.exe`), e o **neto nasce sem as flags de ocultação do pai** — o Windows então aloca um console novo para ele. Medido: spawn do venv = 1 processo filho + 1 hospedeiro de console novo; spawn do interpretador base com o `site-packages` do venv no `PYTHONPATH` = 0 filhos, 0 console novo. Por isso o launcher sobe o interpretador **base** no Windows (`pythonBin()` em `scripts/start.js`), e nunca o `venvBin()` direto. No Unix o `venv/bin/python` é symlink, sem redirector, e lá segue-se usando o venv.
+
+**Watchdog sem teto é loop de janelas** — uma rotina que reergue o backend sem limite máximo de tentativas transforma qualquer falha de bind em spawned infinito, e cada spawned é candidato a uma janela. O watchdog de `scripts/start.js` tem teto duro (`MAX_REINICIOS = 3`), encerra o processo zumbi por código, aponta o `backend.log` e sai com `exit(1)`; antes de reiniciar ainda reaproveita um backend já vivo (`backendJaRodando()`) em vez de empilhar outra instância.
+
 ## Comandos de instalação
 
 Após cada versão, entregar sempre os comandos no formato:

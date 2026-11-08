@@ -2,6 +2,13 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.4.12 (2026-11-08)
+
+- **Regra permanente documentada no AGENTS.md** — duas armadilhas que causaram os hotfixes 0.4.04 e 0.4.11, agora escritas para não se repetirem:
+  - **Armadilha do redirector do venv (Windows)**: `windowsHide: true` no spawn do launcher não basta quando o binário é o `venv/Scripts/python.exe` do python-build-standalone — ele re-executa o interpretador real e o neto nasce sem as flags do pai, e o Windows aloca um console novo. O launcher sobe o interpretador **base** com o `site-packages` do venv no `PYTHONPATH`; nunca o `venvBin()` direto no Windows
+  - **Watchdog sem teto é loop de janelas**: rotina que reergue o backend sem limite máximo transforma falha de bind em spawned infinito. Teto duro `MAX_REINICIOS = 3`, encerramento por código, `exit(1)` e reaproveitamento de backend vivo antes de reiniciar
+- Sem alteração de código — apenas documentação das regras permanentes (regra do AGENTS.md exige entrada no CHANGELOG para qualquer alteração com push)
+
 ## 0.4.11 (2026-11-08)
 
 - **CAUSA RAIZ DAS JANELAS CMD — medida, não adivinhada**: no Windows o `venv/Scripts/python.exe` das distribuições python-build-standalone é um **REDIRECIONADOR**: ele re-executa o interpretador real (`.runtime/python/python.exe`) e esse **neto nasce sem as flags de ocultação do pai**. O Windows então aloca um console NOVO para o neto. Experimento no próprio repositório (spawn com `detached` + `windowsHide`, `stdio` no arquivo): venv python = **1 processo filho + 1 hospedeiro de console novo**; python base + `PYTHONPATH` = **0 filhos, 0 console novo**
