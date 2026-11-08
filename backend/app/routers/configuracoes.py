@@ -48,27 +48,52 @@ def listar_modelos_nvidia(db: Session = Depends(get_db)) -> dict:
     """Lista os modelos NVIDIA NIM disponíveis para a chave configurada.
 
     Proxy: a API key fica no banco local e nunca é exposta ao frontend.
-    Retorna 400 sem chave; 502 em falha de consulta.
+    Retorna 400 sem chave; 502 em falha de consulta. A Base URL é normalizada
+    pelo mesmo helper do Thunderbolt, então ``/v1``, ``/v1/models`` e
+    ``/v1/chat/completions`` são aceitos sem duplicar o sufixo.
     """
     import httpx
 
-    from backend.core.llm_router import provider_config
+    from backend.core.llm_router import _normalizar_base_url, provider_config
 
     cfg = provider_config(db, "nvidia")
     if not cfg["api_key"]:
         raise HTTPException(status_code=400, detail="API Key da NVIDIA não configurada — adicione-a antes de listar os modelos.")
-    url = cfg["base_url"].rstrip("/") + "/models"
+    base = _normalizar_base_url(cfg["base_url"])
+    if not base:
+        raise HTTPException(status_code=400, detail=f"Base URL da NVIDIA inválida: {cfg['base_url']!r}")
+    url = f"{base}/models"
     try:
-        resposta = httpx.get(url, headers={"Authorization": f"Bearer {cfg['api_key']}"}, timeout=20.0)
+        resposta = httpx.get(
+            url,
+            headers={"Accept": "application/json", "Authorization": f"Bearer {cfg['api_key']}"},
+            timeout=20.0,
+        )
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"Erro ao consultar a NVIDIA: {exc}") from exc
+    if resposta.status_code in (401, 403):
+        raise HTTPException(
+            status_code=502,
+            detail=f"A NVIDIA recusou a API key (HTTP {resposta.status_code}). Verifique a chave em Configurações.",
+        )
     if resposta.status_code != 200:
         raise HTTPException(
             status_code=502,
             detail=f"NVIDIA respondeu {resposta.status_code}: {resposta.text[:200]}",
         )
-    ids = sorted(str(m.get("id")) for m in resposta.json().get("data", []) if m.get("id"))
-    return {"models": ids, "modelo_atual": cfg["model"], "base_url": cfg["base_url"]}
+    try:
+        dados = resposta.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="A NVIDIA devolveu uma resposta que não é JSON.") from exc
+    ids = sorted(str(m.get("id")) for m in (dados.get("data") or []) if m.get("id"))
+    if not ids:
+        raise HTTPException(status_code=502, detail="A NVIDIA não devolveu nenhum modelo para esta chave.")
+    return {
+        "models": ids,
+        "modelo_atual": cfg["model"],
+        "base_url": cfg["base_url"],
+        "modelo_atual_disponivel": cfg["model"] in ids,
+    }
 
 
 @router.post("/testar-supabase")

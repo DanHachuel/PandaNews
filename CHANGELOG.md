@@ -2,6 +2,19 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.4.07 (2026-11-08)
+
+- **CORREÇÃO DEFINITIVA da NVIDIA NIM — réplica do Thunderbolt**: `backend/core/llm_router.py` reescrito para falar com provedores OpenAI-compatible por **HTTP direto** (`POST {base_url}/chat/completions`, `Authorization: Bearer`, `Content-Type: application/json`, `Accept: application/json`), a mesma estrutura que funciona no projeto Thunderbolt — `requests` trocado por `httpx`, já dependência do projeto
+- **Causa raiz 1 — dependência fantasma**: o 0.4.05/0.4.06 importava `from openai import APIStatusError, OpenAI`, mas `openai` **não está** em `requirements.txt`. Em instalação nova o backend morria com `ImportError` antes de qualquer chamada — era a exceção quebrando o fluxo antes da troca de provedor. A dependência foi eliminada: nada de SDK extra para instalar
+- **Causa raiz 2 — modelo em fim de vida**: o default `meta/llama-3.3-70b-instruct` chegou ao fim da vida em 2026-08-26 e devolve **HTTP 410 Gone**; `meta/llama-3.1-nemotron-70b-instruct` devolve **HTTP 404 page not found**. O default agora é `mistralai/mistral-large-2-instruct`, verificado no catálogo ao vivo (`GET https://integrate.api.nvidia.com/v1/models`)
+- **Endpoint à prova de 404**: a Base URL é normalizada antes do uso (`/v1`, `/v1/models` e `/v1/chat/completions` são aceitos sem duplicar o sufixo) — o `/chat/completions` duplicado era uma fonte de 404
+- **Fallback implacável**: `except Exception` captura tudo — HTTP 4xx/5xx, 404/410, timeout, rede e JSON inválido. O log registra exatamente `Erro na NVIDIA ({e}). Acionando Google Gemini...` e o próximo provedor assume na mesma iteração; a notícia é gerada sem tela de erro
+- **"Testar conexão" valida inferência real**: `POST /api/v1/llm/test` executa um `chat/completions` de verdade com `max_tokens=1` (não lista modelos). A string de erro do provedor volta no JSON para o frontend exibir; 404/410 marcam `degraded` com instrução de trocar de modelo
+- **Proxy de modelos reforçado**: `/configuracoes/llm/nvidia/models` normaliza a URL, distingue 401/403 (chave recusada) de outros erros e devolve `modelo_atual_disponivel`
+- **Frontend**: aviso vermelho quando o modelo selecionado saiu do catálogo da NVIDIA (404/410) — o usuário vê o problema antes de clicar em testar, com a indicação de que as gerações estão caindo no Gemini
+- **Teste funcional novo**: `backend/tests/test_llm_fallback.py` (13 verificações, roda sem pytest e sem servidor) cobre o fallback no 410, a mensagem de log exigida, o erro quando todos os provedores falham, o formato do `test_provider` e a normalização do endpoint — agregado ao CI
+- Colisão de versão resolvida por renumeração (0.4.06 já publicado), conforme a regra de sessões simultâneas do AGENTS.md
+
 ## 0.4.04 (2026-11-08)
 
 - **HOTFIX real — fim das janelas de CMD no instalador**: o 0.4.03 blindou apenas o launcher (`start.js`) e deixou o **caminho de instalação** descoberto. No Windows, `tar` (extração do Python portátil), `python -m venv` e `pip install -r requirements.txt` eram lançados **sem `windowsHide`** — era aí que as múltiplas janelas de terminal apareciam. Os três `spawnSync` de `scripts/install.js` agora nascem com `windowsHide: true` (`CREATE_NO_WINDOW`)

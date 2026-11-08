@@ -68,6 +68,9 @@ jobs:
       - name: Test no console windows (start/install/build/cli + backend Python)
         run: node scripts/test-start-isolation.mjs
 
+      - name: Test LLM fallback (NVIDIA 410/404 -> Gemini)
+        run: python backend/tests/test_llm_fallback.py
+
       - name: Smoke test launcher install
         run: |
           TEST_ROOT="${RUNNER_TEMP}/pandanews-install-smoke"

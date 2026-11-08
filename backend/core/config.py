@@ -40,7 +40,12 @@ DEFAULT_LLM_BASE_URLS = {
     "nvidia": "https://integrate.api.nvidia.com/v1",
     "google": "https://generativelanguage.googleapis.com/v1beta/openai",
 }
+# Modelos precisam existir no catálogo do provedor. O default anterior da
+# NVIDIA (meta/llama-3.3-70b-instruct) chegou ao fim da vida em 2026-08-26 e
+# passou a devolver HTTP 410 "Gone" — o sintoma que o usuário via como 404.
+# `mistralai/mistral-large-2-instruct` está no catálogo atual (verificado
+# contra https://integrate.api.nvidia.com/v1/models).
 DEFAULT_LLM_MODELS = {
-    "nvidia": "meta/llama-3.3-70b-instruct",
+    "nvidia": "mistralai/mistral-large-2-instruct",
     "google": "gemini-3.8-flash",
 }

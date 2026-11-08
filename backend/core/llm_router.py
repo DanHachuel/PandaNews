@@ -1,30 +1,85 @@
-"""Router de LLM do PandaNews: fallback ordenado e à prova de falhas.
+"""Router de LLM do PandaNews — réplica da integração NVIDIA do Thunderbolt.
 
-Roteamento explícito, provedor por provedor, na ordem configurada
-(padrão: NVIDIA NIM → Google Gemini). Qualquer erro HTTP do provedor atual
-(4xx/5xx — incluindo 404/410 de modelos descontinuados) é registrado e o
-próximo provedor é acionado imediatamente. A função devolve (texto, provedor)
-para registrar em noticias.llm_provider.
+O projeto Thunderbolt (referência que funciona) fala com provedores
+OpenAI-compatible — NVIDIA NIM, Gemini etc. — por **HTTP direto**:
+
+    POST {base_url}/chat/completions
+    Authorization: Bearer <api_key>
+    Content-Type:  application/json
+    {"model": ..., "messages": [...], "max_tokens": ..., "temperature": 0}
+
+Este módulo copia essa estrutura exata, trocando `requests` por `httpx` (já
+dependência do PandaNews). Nenhum SDK novo é necessário — em particular a
+biblioteca `openai` **não** é usada: ela não está declarada em
+requirements.txt, então instalá-la quebraria o backend com ImportError em
+toda instalação nova (foi exatamente o que derrubou o fluxo antes).
+
+Fallback implacável: qualquer exceção — HTTP 4xx/5xx (inclusive 404/410 de
+modelo descontinuado), timeout, erro de rede ou JSON inválido — é registrada e
+o próximo provedor da lista é acionado imediatamente. Nada escapa.
 """
 from __future__ import annotations
 
 import logging
-import time
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
-from openai import APIStatusError, OpenAI
 
 from backend.core.config import DEFAULT_LLM_BASE_URLS, DEFAULT_LLM_MODELS
 
 PROVEDORES = ("nvidia", "google")
 
-# Rótulos de exibição (banco, logs e UI usam "Gemini", não o id interno "google").
-NOME_EXIBICAO = {"nvidia": "NVIDIA NIM", "google": "Gemini"}
+# Nomes exibidos no log — a mensagem de fallback usa estes rótulos.
+NOMES_PROVEDORES = {"nvidia": "NVIDIA", "google": "Google Gemini"}
+
+TIMEOUT_SEGUNDOS = 60.0
 
 # Logger filho do uvicorn.error: mensagens vão para o backend.log (e stderr),
 # com a disciplina de logs do servidor.
 logger = logging.getLogger("uvicorn.error.pandanews")
 
+
+# --------------------------------------------------------------- endpoints
+
+def _normalizar_base_url(base_url: str) -> str:
+    """Mantém apenas esquema/host/path da Base URL (como o Thunderbolt).
+
+    Aceita tanto ``https://host/v1`` quanto ``https://host/v1/models`` ou
+    ``https://host/v1/chat/completions`` — o sufixo é descartado/refeito,
+    evitando o ``/chat/completions`` duplicado que provocaria 404.
+    """
+    raw = str(base_url or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return raw.rstrip("/")
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return raw.rstrip("/")
+    path = parsed.path.rstrip("/")
+    for sufixo in ("/chat/completions", "/models"):
+        if path.endswith(sufixo):
+            path = path[: -len(sufixo)]
+            break
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def chat_completions_endpoint(base_url: str) -> str:
+    """Endpoint de Chat Completions — igual ao do Thunderbolt."""
+    base = _normalizar_base_url(base_url)
+    return f"{base}/chat/completions" if base else ""
+
+
+def _headers(api_key: str) -> dict:
+    """Cabeçalhos OpenAI-compatible do Thunderbolt (Accept incluído)."""
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+# ------------------------------------------------------------- acesso a config
 
 def get_config(db, chave: str, padrao: str = "") -> str:
     from backend.core.database import Configuracao
@@ -41,25 +96,55 @@ def provider_config(db, provider: str) -> dict:
     }
 
 
-def _chamar_provedor(db, provider: str, prompt: str, max_tokens: int) -> tuple[str, str]:
-    """Uma chamada de chat completion no provedor. Levanta em caso de erro."""
+# ---------------------------------------------------------- chamada ao provedor
+
+def chamar_provedor(db, provider: str, prompt: str, max_tokens: int) -> tuple[str, str]:
+    """Uma chamada de chat completion no provedor. Levanta em caso de erro.
+
+    Cópia da estrutura do Thunderbolt: POST HTTP direto no endpoint
+    ``{base_url}/chat/completions`` com Bearer token. Qualquer resposta >= 400
+    levanta ``httpx.HTTPStatusError`` — capturada pelo fallback em
+    ``gerar_texto``.
+    """
     cfg = provider_config(db, provider)
-    client = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"], timeout=60.0)
-    resposta = client.chat.completions.create(
-        model=cfg["model"],
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=max_tokens,
-    )
-    texto = resposta.choices[0].message.content or ""
-    modelo = str(getattr(resposta, "model", "") or cfg["model"])
+    if not cfg["api_key"]:
+        raise RuntimeError(f"{NOMES_PROVEDORES.get(provider, provider)}: API key não configurada.")
+    if not cfg["model"]:
+        raise RuntimeError(f"{NOMES_PROVEDORES.get(provider, provider)}: nenhum modelo configurado.")
+
+    endpoint = chat_completions_endpoint(cfg["base_url"])
+    if not endpoint:
+        raise RuntimeError(f"{NOMES_PROVEDORES.get(provider, provider)}: Base URL inválida ({cfg['base_url']!r}).")
+
+    payload = {
+        "model": cfg["model"],
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7,
+        "max_tokens": max_tokens,
+    }
+
+    with httpx.Client(timeout=TIMEOUT_SEGUNDOS) as client:
+        resposta = client.post(endpoint, headers=_headers(cfg["api_key"]), json=payload)
+        resposta.raise_for_status()
+        dados = resposta.json()
+
+    texto = ""
+    escolhas = dados.get("choices") or []
+    if escolhas:
+        texto = (escolhas[0].get("message") or {}).get("content") or ""
+    if not texto:
+        raise RuntimeError(f"{NOMES_PROVEDORES.get(provider, provider)}: resposta sem conteúdo.")
+
+    modelo = str(dados.get("model") or cfg["model"])
     return texto, modelo
 
 
 def gerar_texto(db, prompt: str, max_tokens: int = 1024) -> tuple[str, str]:
     """Gera texto com fallback ordenado. Retorna (texto, provedor_que_respondeu).
 
-    Se um provedor falhar por qualquer erro HTTP, registra o incidente e
-    aciona o próximo da lista. Só levanta erro quando TODOS falham.
+    Fallback implacável: capture ``Exception`` — não importa se é HTTP 404/410
+    (modelo descontinuado), 500, timeout ou queda de rede. O incidente é
+    registrado e o próximo provedor é acionado na mesma iteração.
     """
     ordem = [p.strip() for p in get_config(db, "llm_fallback_ordem", "nvidia,google").split(",") if p.strip()]
     disponiveis = [p for p in ordem if p in PROVEDORES and provider_config(db, p)["api_key"]]
@@ -68,68 +153,100 @@ def gerar_texto(db, prompt: str, max_tokens: int = 1024) -> tuple[str, str]:
 
     ultimo_erro: Exception | None = None
     for indice, provider in enumerate(disponiveis):
+        nome = NOMES_PROVEDORES.get(provider, provider)
         proximo = disponiveis[indice + 1] if indice + 1 < len(disponiveis) else None
-        try:
-            texto, modelo = _chamar_provedor(db, provider, prompt, max_tokens)
-            logger.info("LLM: %s respondeu (modelo %s)", NOME_EXIBICAO.get(provider, provider), modelo)
-            # Banco/UI rotulam o provedor do Gemini como "gemini" (não o id interno "google")
-            return texto, "gemini" if provider == "google" else provider
-        except APIStatusError as exc:
-            status = exc.status_code
-            ultimo_erro = exc
-            logger.warning("LLM: %s falhou com HTTP %s (%s)", provider, status, str(exc)[:300])
-            if status in (404, 410):
-                destino = proximo or "nenhum"
-                logger.warning(
-                    "Modelo %s indisponível (Status %s). Acionando fallback para %s.",
-                    NOME_EXIBICAO.get(provider, provider),
-                    status,
-                    NOME_EXIBICAO.get(destino, destino),
-                )
-        except Exception as exc:  # noqa: BLE001 — timeouts, rede, auth: tenta o próximo
-            ultimo_erro = exc
-            logger.warning("LLM: %s falhou (%s): %s", provider, type(exc).__name__, str(exc)[:300])
-        if proximo:
-            continue
-    raise RuntimeError(f"Todos os provedores de LLM falharam ({', '.join(disponiveis)}). Último erro: {ultimo_erro}")
+        nome_proximo = NOMES_PROVEDORES.get(proximo, proximo) if proximo else "nenhum provedor"
 
+        try:
+            texto, modelo = chamar_provedor(db, provider, prompt, max_tokens)
+            logger.info("LLM: %s respondeu (modelo %s)", nome, modelo)
+            return texto, provider
+
+        except Exception as exc:  # noqa: BLE001 — fallback implacável: TUDO troca de provedor
+            ultimo_erro = exc
+            if proximo:
+                logger.warning("Erro na %s (%s). Acionando %s...", nome, exc, nome_proximo)
+            else:
+                logger.warning("Erro na %s (%s). Sem provedor restante no fallback.", nome, exc)
+
+    raise RuntimeError(
+        f"Todos os provedores de LLM falharam ({', '.join(disponiveis)}). Último erro: {ultimo_erro}"
+    )
+
+
+# ------------------------------------------------------------ teste de conexão
 
 def test_provider(db, provider: str) -> dict:
-    """Chamada real e curta (POST /chat/completions) para validar a chave.
+    """Teste REAL de conexão: uma chamada de inferência com 1 token.
 
-    404/410 → 'degraded': a chave pode funcionar, mas o modelo endpoint está
-    indisponível — o pipeline segue pelo fallback. A UI distingue os estados.
+    Igual ao ``validate_openai_compatible_api_key`` do Thunderbolt — não lista
+    modelos, executa um POST mínimo em ``/chat/completions``. A string de erro
+    do provedor volta no JSON para o frontend exibir na tela.
+
+    404/410 → ``degraded``: a chave pode ser válida, mas o modelo saiu do
+    catálogo — o pipeline segue pelo fallback sem travar a tela.
     """
     if provider not in PROVEDORES:
         return {"ok": False, "detail": f"Provedor desconhecido: {provider}"}
     cfg = provider_config(db, provider)
     if not cfg["api_key"]:
         return {"ok": False, "detail": "API key não configurada — adicione em Configurações."}
-    url = cfg["base_url"].rstrip("/") + "/chat/completions"
+    if not cfg["model"]:
+        return {"ok": False, "detail": "Nenhum modelo configurado — selecione um antes de testar."}
+
+    endpoint = chat_completions_endpoint(cfg["base_url"])
+    if not endpoint:
+        return {"ok": False, "detail": f"Base URL inválida: {cfg['base_url']!r}"}
+
     payload = {
         "model": cfg["model"],
-        "messages": [{"role": "user", "content": "Responda apenas: ok"}],
-        "max_tokens": 5,
+        "messages": [{"role": "user", "content": "Responda apenas OK."}],
+        "max_tokens": 1,
+        "temperature": 0,
     }
-    headers = {"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"}
-    started = time.perf_counter()
+
     try:
-        resp = httpx.post(url, json=payload, headers=headers, timeout=20.0)
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        if resp.status_code == 200:
-            return {"ok": True, "status": 200, "latency_ms": elapsed_ms, "model": cfg["model"], "base_url": cfg["base_url"]}
-        if resp.status_code in (404, 410):
-            return {
-                "ok": False,
-                "degraded": True,
-                "status": resp.status_code,
-                "detail": (
-                    f"Sua chave da NVIDIA retornou erro {resp.status_code}. "
-                    "O sistema usará o Gemini (fallback) para gerar as notícias."
-                    if provider == "nvidia"
-                    else f"Endpoint do Gemini retornou {resp.status_code}. O sistema usará a NVIDIA (primário) para gerar as notícias."
-                ),
-            }
-        return {"ok": False, "status": resp.status_code, "detail": resp.text[:400]}
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+        with httpx.Client(timeout=20.0) as client:
+            resp = client.post(endpoint, headers=_headers(cfg["api_key"]), json=payload)
+    except httpx.HTTPError as exc:
+        return {"ok": False, "detail": f"Não foi possível testar {endpoint}: {exc}"}
+
+    elapsed_ms = int(resp.elapsed.total_seconds() * 1000)
+
+    if resp.status_code in (401, 403):
+        return {
+            "ok": False,
+            "status": resp.status_code,
+            "detail": f"O endpoint recusou a API key (HTTP {resp.status_code}). Verifique a chave em Configurações.",
+        }
+    if resp.status_code in (404, 410):
+        return {
+            "ok": False,
+            "degraded": True,
+            "status": resp.status_code,
+            "detail": (
+                f"Modelo '{cfg['model']}' indisponível na NVIDIA (HTTP {resp.status_code}): "
+                f"{resp.text[:200]} — use o botão ↻ para escolher um modelo do catálogo. "
+                "As notícias seguem sendo geradas pelo Gemini (fallback)."
+                if provider == "nvidia"
+                else (
+                    f"Modelo '{cfg['model']}' indisponível no Gemini (HTTP {resp.status_code}): "
+                    f"{resp.text[:200]} — as notícias seguem sendo geradas pela NVIDIA (primário)."
+                )
+            ),
+        }
+    if resp.status_code >= 400:
+        return {
+            "ok": False,
+            "status": resp.status_code,
+            "detail": f"O endpoint de teste devolveu HTTP {resp.status_code}: {resp.text[:400]}",
+        }
+
+    return {
+        "ok": True,
+        "status": 200,
+        "latency_ms": elapsed_ms,
+        "model": cfg["model"],
+        "base_url": cfg["base_url"],
+        "endpoint": endpoint,
+    }

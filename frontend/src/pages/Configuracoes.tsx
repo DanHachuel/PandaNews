@@ -4,7 +4,7 @@ import { apiGet, apiSend } from '../lib/api';
 import type { Configuracoes } from '../lib/types';
 import { Badge, Button, Card, Expander, Field, inputClass } from '../components/ui';
 
-type TestResult = { ok: boolean; detail?: string; latency_ms?: number; model?: string; degraded?: boolean; status?: number };
+type TestResult = { ok: boolean; detail?: string; latency_ms?: number; model?: string; degraded?: boolean; status?: number; endpoint?: string };
 
 const NOME_PROVEDOR: Record<string, string> = { nvidia: 'NVIDIA NIM', google: 'Google Gemini' };
 
@@ -71,11 +71,17 @@ export function Configuracoes() {
     refetch: recarregarModelos,
   } = useQuery({
     queryKey: ['nvidia-models'],
-    queryFn: () => apiGet<{ models: string[] }>('/configuracoes/llm/nvidia/models'),
+    queryFn: () =>
+      apiGet<{ models: string[]; modelo_atual?: string; modelo_atual_disponivel?: boolean }>(
+        '/configuracoes/llm/nvidia/models',
+      ),
     retry: false,
     staleTime: 5 * 60 * 1000,
   });
   const modelosNvidia = modelosData?.models ?? [];
+  // Modelo saiu do catálogo (404/410): avisa antes do usuário clicar em testar.
+  const modeloForaDoCatalogo =
+    modelosData?.modelo_atual_disponivel === false && modelosNvidia.length > 0;
 
   const verSchema = useMutation({
     mutationFn: () => apiGet<{ sql: string }>('/configuracoes/schema-supabase'),
@@ -177,6 +183,13 @@ export function Configuracoes() {
                   ↻
                 </Button>
               </div>
+              {modeloForaDoCatalogo && (
+                <p className="mt-2 text-xs text-red-400">
+                  O modelo <code className="font-mono">{modelosData?.modelo_atual}</code> não está mais no catálogo da
+                  NVIDIA (404/410 — fim de vida). Escolha outro na lista: as gerações estão caindo no Gemini por
+                  fallback.
+                </p>
+              )}
               {!carregandoModelos && modelosNvidia.length === 0 && (
                 <p className="mt-2 text-xs text-amber-500">
                   Lista indisponível (chave não configurada ou NVIDIA fora do ar) — o modelo atual é mantido. Configure a
