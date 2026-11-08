@@ -14,6 +14,11 @@ Todas as versões publicadas são registradas aqui antes do publish (regra em AG
 - **Guard verificado por mutação**: com a flag removida do `pip`, com um `subprocess.run` direto no backend e com `--reload` no uvicorn, o teste falha em todos os casos (exit 1) — não é carimbo de borracha
 - Nota de transparência: a colisão de versão com o 0.4.03 já publicado no registry foi resolvida por renumeração, conforme a regra de sessões simultâneas do AGENTS.md
 
+## 0.4.06 (2026-11-08)
+
+- Rótulos de exibição do LLM alinhados ao critério de aceitação: o provedor do Google passa a ser gravado/exposto como **`gemini`** em `noticias.llm_provider` (antes o id interno `google`), e os warning de fallback usam os nomines "NVIDIA NIM" e "Gemini" — `Modelo NVIDIA NIM indisponível (Status 404). Acionando fallback para Gemini.`
+- Nenhuma mudança funcional de roteamento — apenas nomenclatura consistente entre banco, log e UI
+
 ## 0.4.05 (2026-11-08)
 
 - **HOTFIX — fallback à prova de falhas no LLM Router** (crítico): roteamento reescrito em `backend/core/llm_router.py`, agora explícito provedor por provedor na ordem configurada. Qualquer erro HTTP (4xx/5xx, incluindo **404/410** da NVIDIA) é interceptado, registrado (`Modelo nvidia indisponível (Status {status}). Acionando fallback para {próximo}.`) e o próximo provedor é acionado imediatamente — a geração não trava mais. A função devolve qual provedor respondeu (`noticias.llm_provider`) e o incidente fica em `backend.log`

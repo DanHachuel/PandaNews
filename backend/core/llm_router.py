@@ -18,6 +18,9 @@ from backend.core.config import DEFAULT_LLM_BASE_URLS, DEFAULT_LLM_MODELS
 
 PROVEDORES = ("nvidia", "google")
 
+# Rótulos de exibição (banco, logs e UI usam "Gemini", não o id interno "google").
+NOME_EXIBICAO = {"nvidia": "NVIDIA NIM", "google": "Gemini"}
+
 # Logger filho do uvicorn.error: mensagens vão para o backend.log (e stderr),
 # com a disciplina de logs do servidor.
 logger = logging.getLogger("uvicorn.error.pandanews")
@@ -68,8 +71,9 @@ def gerar_texto(db, prompt: str, max_tokens: int = 1024) -> tuple[str, str]:
         proximo = disponiveis[indice + 1] if indice + 1 < len(disponiveis) else None
         try:
             texto, modelo = _chamar_provedor(db, provider, prompt, max_tokens)
-            logger.info("LLM: %s respondeu (modelo %s)", provider, modelo)
-            return texto, provider
+            logger.info("LLM: %s respondeu (modelo %s)", NOME_EXIBICAO.get(provider, provider), modelo)
+            # Banco/UI rotulam o provedor do Gemini como "gemini" (não o id interno "google")
+            return texto, "gemini" if provider == "google" else provider
         except APIStatusError as exc:
             status = exc.status_code
             ultimo_erro = exc
@@ -78,9 +82,9 @@ def gerar_texto(db, prompt: str, max_tokens: int = 1024) -> tuple[str, str]:
                 destino = proximo or "nenhum"
                 logger.warning(
                     "Modelo %s indisponível (Status %s). Acionando fallback para %s.",
-                    provider,
+                    NOME_EXIBICAO.get(provider, provider),
                     status,
-                    destino,
+                    NOME_EXIBICAO.get(destino, destino),
                 )
         except Exception as exc:  # noqa: BLE001 — timeouts, rede, auth: tenta o próximo
             ultimo_erro = exc
