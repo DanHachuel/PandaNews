@@ -14,6 +14,15 @@ Todas as versões publicadas são registradas aqui antes do publish (regra em AG
 - **Guard verificado por mutação**: com a flag removida do `pip`, com um `subprocess.run` direto no backend e com `--reload` no uvicorn, o teste falha em todos os casos (exit 1) — não é carimbo de borracha
 - Nota de transparência: a colisão de versão com o 0.4.03 já publicado no registry foi resolvida por renumeração, conforme a regra de sessões simultâneas do AGENTS.md
 
+## 0.4.04 (2026-11-08)
+
+- **HOTFIX — fallback à prova de falhas no LLM Router** (crítico): roteamento reescrito em `backend/core/llm_router.py`, agora explícito provedor por provedor na ordem configurada. Qualquer erro HTTP (4xx/5xx, incluindo **404/410** da NVIDIA) é interceptado, registrado (`Modelo NVIDIA indisponível (Status {status}). Acionando fallback para {próximo}.`) e o próximo provedor é acionado imediatamente — a geração não trava mais. A função devolve qual provedor respondeu (`noticias.llm_provider`) e o incidente fica em `backend.log`
+- **HOTFIX — janelas de CMD na instalação**: os spawns de `tar` (extração do Python portátil), `python -m venv` e `pip install` em `scripts/install.js` nasciam sem `windowsHide` no Windows — origem das múltiplas janelas de terminal. Todos agora usam `SILENT_WINDOWS` (CREATE_NO_WINDOW), com `stdio: 'inherit'` (progresso continua visível no console que o usuário já abriu, sem janela extra). `scripts/build.js` (npm) e o helper `backend/core/proc.py` (subprocessos Python) seguem a mesma regra
+- **Teste de conexão real**: `/api/v1/llm/test` dispara POST `/chat/completions` de verdade; 404/410 devolvem estado **`degraded`** com a mensagem "Sua chave da NVIDIA retornou erro 404. O sistema usará o Gemini (fallback) para gerar as notícias."
+- Frontend: badge âmbar `degraded` no resultado do teste + tag vermelha **[Indisponível]** ao lado do select de modelos — destacada mas mantida selecionável
+- Teste de regressão do CI ampliado: varre os spawns de `scripts/install.js` além do `start.js` — build falha se qualquer um perder `windowsHide`
+- Validado em E2E com mock servers: NVIDIA → 404 → Gemini → 200 → notícia gerada com `llm_provider='google'` e logs do incidente
+
 ## 0.4.03 (2026-11-08)
 
 - **Regra permanente no AGENTS.md**: é PROIBIDO criar/publicar versões que abram janelas de terminal (CMD/PowerShell/console Python) no computador do usuário — todo processo filho deve nascer com `windowsHide: true` + grupo isolado, rodar em background com saída apenas em log e ser encerrado por código; versão que exiba janela de console é inválida (hotfix + CHANGELOG)

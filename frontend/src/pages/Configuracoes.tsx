@@ -4,7 +4,7 @@ import { apiGet, apiSend } from '../lib/api';
 import type { Configuracoes } from '../lib/types';
 import { Badge, Button, Card, Expander, Field, inputClass } from '../components/ui';
 
-type TestResult = { ok: boolean; detail?: string; latency_ms?: number; model?: string };
+type TestResult = { ok: boolean; detail?: string; latency_ms?: number; model?: string; degraded?: boolean; status?: number };
 
 const NOME_PROVEDOR: Record<string, string> = { nvidia: 'NVIDIA NIM', google: 'Google Gemini' };
 
@@ -146,7 +146,7 @@ export function Configuracoes() {
                   : 'Lista carregada dinamicamente da NVIDIA NIM'
               }
             >
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <select
                   className={inputClass}
                   value={form.nvidia_model}
@@ -164,6 +164,15 @@ export function Configuracoes() {
                     </option>
                   ))}
                 </select>
+                {/* Modelo retornou 404/410: alerta, mas segue selecionável */}
+                {testes.nvidia?.degraded && (
+                  <span
+                    className="inline-flex items-center rounded bg-red-600 px-2 py-1 text-xs font-bold text-white"
+                    title="Modelo indisponível na NVIDIA (404/410) — o fallback Gemini será usado nas gerações"
+                  >
+                    [Indisponível]
+                  </span>
+                )}
                 <Button variant="secondary" onClick={() => recarregarModelos()} disabled={carregandoModelos} title="Atualizar lista da NVIDIA">
                   ↻
                 </Button>
@@ -180,13 +189,17 @@ export function Configuracoes() {
                 Testar conexão
               </Button>
               {testes.nvidia && (
-                <Badge tone={testes.nvidia.ok ? 'green' : 'red'}>
-                  {testes.nvidia.ok ? `ok · ${testes.nvidia.latency_ms}ms` : 'falhou'}
+                <Badge tone={testes.nvidia.ok ? 'green' : testes.nvidia.degraded ? 'amber' : 'red'}>
+                  {testes.nvidia.ok ? `ok · ${testes.nvidia.latency_ms}ms` : testes.nvidia.degraded ? 'degraded' : 'falhou'}
                 </Badge>
               )}
             </div>
           </div>
-          {testes.nvidia && !testes.nvidia.ok && <p className="mt-3 text-xs text-red-400">{testes.nvidia.detail}</p>}
+          {testes.nvidia && !testes.nvidia.ok && (
+            <p className={`mt-3 text-xs ${testes.nvidia.degraded ? 'text-amber-500' : 'text-red-400'}`}>
+              {testes.nvidia.detail}
+            </p>
+          )}
         </Expander>
 
         <Expander title="Google Gemini (provedor de fallback)">
