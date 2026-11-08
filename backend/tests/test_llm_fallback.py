@@ -21,6 +21,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+# O teste não precisa de banco: `llm_router.get_config` importa
+# `backend.core.database` de forma preguiçosa (dentro da função), o que
+# exigiria SQLAlchemy só para rodar os assertions. Um stub do módulo mantém
+# o teste autônomo — sem servidor, sem pytest, sem dependências extras.
+import types  # noqa: E402
+
+if "backend.core.database" not in sys.modules:
+    _stub = types.ModuleType("backend.core.database")
+
+    class _ConfiguracaoStub:  # noqa: D401 - apenas um marcador para o .get()
+        """Stub: o FakeDB abaixo responde ao `.get()` sem tocar no ORM."""
+
+    _stub.Configuracao = _ConfiguracaoStub
+    sys.modules["backend.core.database"] = _stub
+
 from backend.core import llm_router  # noqa: E402
 
 
