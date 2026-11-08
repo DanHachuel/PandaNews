@@ -105,7 +105,7 @@ llm_router.logger.setLevel(logging.INFO)
 
 texto, provedor = llm_router.gerar_texto(_db_com_chaves(), "escreva uma noticia")
 
-check(provedor == "google", "NVIDIA com 410 -> o Gemini assume (provedor devolvido: google)")
+check(provedor == "gemini", "NVIDIA com 410 -> o Gemini assume (provedor devolvido: gemini)")
 check("noticia gerada pelo gemini" in texto, "o texto devolvido é o do Gemini, não uma exceção")
 
 mensagem_esperada = "Erro na NVIDIA (410 Gone"

@@ -2,6 +2,11 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.4.08 (2026-11-08)
+
+- **Mantém o rótulo `gemini` em `noticias.llm_provider`**: a reescrita do router (0.4.07) devolvia o id interno `google`, o que regrediria o alinhamento banco/UI feito na 0.4.05/0.4.06. `gerar_texto` volta a devolver `"gemini"` quando o provedor do Google responde — Dashboards, filtros e exibição continuam consistentes
+- Nenhuma outra mudança funcional
+
 ## 0.4.07 (2026-11-08)
 
 - **CORREÇÃO DEFINITIVA da NVIDIA NIM — réplica do Thunderbolt**: `backend/core/llm_router.py` reescrito para falar com provedores OpenAI-compatible por **HTTP direto** (`POST {base_url}/chat/completions`, `Authorization: Bearer`, `Content-Type: application/json`, `Accept: application/json`), a mesma estrutura que funciona no projeto Thunderbolt — `requests` trocado por `httpx`, já dependência do projeto

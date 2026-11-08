@@ -160,7 +160,9 @@ def gerar_texto(db, prompt: str, max_tokens: int = 1024) -> tuple[str, str]:
         try:
             texto, modelo = chamar_provedor(db, provider, prompt, max_tokens)
             logger.info("LLM: %s respondeu (modelo %s)", nome, modelo)
-            return texto, provider
+            # Banco/UI rotulam o provedor do Gemini como "gemini" (id de exibição,
+            # não o id interno "google") — mantido desde a 0.4.05.
+            return texto, "gemini" if provider == "google" else provider
 
         except Exception as exc:  # noqa: BLE001 — fallback implacável: TUDO troca de provedor
             ultimo_erro = exc

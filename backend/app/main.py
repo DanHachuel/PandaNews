@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
     scheduler.parar()
 
 
-app = FastAPI(title="PandaNews API", version="0.4.7", lifespan=lifespan)
+app = FastAPI(title="PandaNews API", version="0.4.8", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
