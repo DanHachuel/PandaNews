@@ -69,7 +69,9 @@ jobs:
         run: node scripts/test-start-isolation.mjs
 
       - name: Test LLM fallback (NVIDIA 410/404 -> Gemini)
-        run: python backend/tests/test_llm_fallback.py
+        run: |
+          pip install --quiet --disable-pip-version-check httpx
+          python backend/tests/test_llm_fallback.py
 
       - name: Smoke test launcher install
         run: |
