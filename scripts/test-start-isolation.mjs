@@ -3,7 +3,7 @@
 // PowerShell, console Python) no computador do usuário.
 //
 // Cobre TODOS os pontos de entrada:
-//   scripts/start.js    — backend uvicorn + taskkill
+//   scripts/start.js    — backend uvicorn + taskkill + watchdog de reinício
 //   scripts/install.js  — tar / venv / pip
 //   scripts/build.js    — npm.cmd install e run build (shell: true)
 //   bin/cli.js          — despacho de comandos
@@ -151,6 +151,86 @@ assert(
   `uvicorn sem --reload/--workers (nenhum processo filho extra no Windows)${
     uvicornExtras ? ` — encontrado: ${uvicornExtras.join(', ')}` : ''
   }`,
+);
+
+// ------------------------------------------------- kill/restart (funções)
+
+// Extrai o corpo de uma função pelo nome — usado para auditar as rotinas de
+// encerramento e de reinício isoladamente.
+function corpoDaFuncao(src, nome) {
+  const assinatura = src.indexOf(`function ${nome}(`);
+  if (assinatura === -1) return '';
+  // pula a lista de parâmetros e devolve o bloco entre {} do corpo
+  const fechaParams = src.indexOf(')', assinatura);
+  if (fechaParams === -1) return '';
+  const abreCorpo = src.indexOf('{', fechaParams);
+  if (abreCorpo === -1) return '';
+  return ateOFechamento(src, abreCorpo, '{', '}');
+}
+
+// 1) taskkill / kill do encerramento — silencioso de verdade
+const corpoEncerrar = corpoDaFuncao(startSrc, 'encerrarPorPid');
+assert(corpoEncerrar.length > 0, 'encerrarPorPid existe (rotina de kill do launcher)');
+assert(
+  /windowsHide:\s*true/.test(corpoEncerrar),
+  'kill (taskkill) com windowsHide: true — sem tela preta ao encerrar',
+);
+assert(
+  /detached:\s*true/.test(corpoEncerrar),
+  'kill (taskkill) com detached: true — grupo de processos isolado',
+);
+assert(
+  /stdio:\s*'ignore'/.test(corpoEncerrar),
+  "kill (taskkill) com stdio: 'ignore' — nenhuma saída vazando para o terminal",
+);
+
+// 2) watchdog de reinício — nunca em loop infinito
+assert(
+  /MAX_REINICIOS\s*=\s*\d+/.test(startSrc),
+  'watchdog tem teto de tentativas (MAX_REINICIOS) — sem loop infinito de spawns',
+);
+assert(
+  /MAX_REINICIOS/.test(corpoDaFuncao(startSrc, 'iniciarWatchdog')),
+  'watchdog USa o teto: para de reiniciar e encerra o launcher ao atingi-lo',
+);
+assert(
+  /process\.exit\(1\)/.test(corpoDaFuncao(startSrc, 'iniciarWatchdog')),
+  'watchdog encerra o launcher com exit(1) quando o teto estoura',
+);
+assert(
+  /reinicios\s*=\s*0/.test(corpoDaFuncao(startSrc, 'iniciarWatchdog')),
+  'watchdog zera o contador quando o backend volta a responder (queda pontual não punida)',
+);
+
+// 3) o caminho de reinício passa pelo startBackend (que spawna silenciosamente)
+assert(
+  /startBackend\(home\)/.test(corpoDaFuncao(startSrc, 'iniciarWatchdog')),
+  'watchdog reergue o backend via startBackend (spawn com windowsHide + detached)',
+);
+
+// 4) REDIRECIONADOR DO VENV — a causa raiz medida da janela CMD no Windows.
+//    `venv/Scripts/python.exe` do python-build-standalone re-executa o
+//    interpretador real sem as flags do pai, e o Windows aloca um console
+//    novo para esse neto. A correção sobe o python BASE + PYTHONPATH do venv.
+assert(
+  /function pythonBin\(/.test(startSrc),
+  'start.js escolhe o binário python via pythonBin() (correção do redirector)',
+);
+assert(
+  /'python', 'python\.exe'/.test(startSrc) || /runtime.*python.*exe/.test(startSrc),
+  'pythonBin prefere o interpretador BASE (.runtime/python) no Windows',
+);
+assert(
+  /PYTHONPATH/.test(startSrc),
+  'pythonBin injeta PYTHONPATH do site-packages do venv (mesmas dependências)',
+);
+assert(
+  /venvSitePackages/.test(startSrc),
+  'pythonBin resolve o site-packages do venv (python base só enxerga via PYTHONPATH)',
+);
+assert(
+  !/venvBin\(home\),\s*\n?\s*\[/m.test(startSrc.match(/const python = spawn\([\s\S]{0,300}/)?.[0] ?? ''),
+  'o spawn do backend NÃO usa venvBin direto (usaria o redirector que abre janela)',
 );
 
 // ------------------------------------------------ varredura Python (backend)

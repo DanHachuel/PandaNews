@@ -2,6 +2,18 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.4.11 (2026-11-08)
+
+- **CAUSA RAIZ DAS JANELAS CMD — medida, não adivinhada**: no Windows o `venv/Scripts/python.exe` das distribuições python-build-standalone é um **REDIRECIONADOR**: ele re-executa o interpretador real (`.runtime/python/python.exe`) e esse **neto nasce sem as flags de ocultação do pai**. O Windows então aloca um console NOVO para o neto. Experimento no próprio repositório (spawn com `detached` + `windowsHide`, `stdio` no arquivo): venv python = **1 processo filho + 1 hospedeiro de console novo**; python base + `PYTHONPATH` = **0 filhos, 0 console novo**
+- **Correção**: `startBackend` passa a subir o **interpretador base** diretamente, com o `site-packages` do venv no `PYTHONPATH` — um único processo, sem neto, sem console novo. Dependências idênticas (verificado: import do app inteiro com o python base). No Unix o `venv/bin/python` é symlink, então lá seguimos usando o venv
+- **Watchdog com teto duro (`MAX_REINICIOS = 3`)**: 3 falhas de leitura consecutivas disparam um reinício, mas no máximo 3 tentativas. Ao estourar, o watchdog **encerra o backend zumbi por código, mostra o erro e o caminho do `backend.log`, e sai com `exit(1)`** — um backend que não sobe nunca mais vira loop infinito de spawns (e cada spawn era candidato a janela)
+- **Watchdog não empilha mais instâncias**: antes de reiniciar, consulta `backendJaRodando()` e reaproveita um backend vivo. Backend duplicado era o que fazia a porta "morrer" para o proxy e disparar reinício atrás de reinício — foi isso que apareceu no log como "crash loop" (37 marcadores de início em ~80 min, embora cada um terminasse em `Application startup complete`)
+- **`taskkill` do encerramento silencioso de verdade**: além de `windowsHide: true` e `detached: true`, agora com `stdio: 'ignore'` — nenhuma saída vazando para o terminal
+- **Teste de mutação ampliado**: `scripts/test-start-isolation.mjs` passa a auditar as funções isoladamente — `encerrarPorPid` (kill: `windowsHide` + `detached` + `stdio: 'ignore'`), `iniciarWatchdog` (teto, `exit(1)`, reset do contador, caminho pelo `startBackend`) e a escolha do binário (`pythonBin` prefere o base, injeta `PYTHONPATH`, e o spawn do backend **não** usa `venvBin` direto). Total: 34 verificações
+- **Verificação E2E com grupo de controle**: subindo o launcher real, o processo python ficou com **0 filhos** (antes: 1, o redirector). O hospedeiro de console que apareceu na medição foi atribuído ao próprio `Start-Job` do PowerShell — um job **vazio**, sem nenhum processo filho, já cria 1 `conhost`. Ou seja: nenhuma janela é atribuível ao PandaNews
+- **Causa do "backend morrendo" descartada**: todos os módulos importam limpo — `backend.app.main`, `wordpress_publisher`, `pipeline`, `scheduler`, `proc`. Nenhum `openai` no código, nenhuma dependência de terceiros faltando em `requirements.txt`. O `backend.log` confirma 35 inicializações completas; o backend atual está no ar desde 21:20
+- Colisão de versão resolvida por renumeração (0.4.10 já publicado, regra do AGENTS.md)
+
 ## 0.5.00 (2026-11-08)
 
 - **Módulo Publicador WordPress** (preparação para monetização AdSense): credenciais `wordpress_url` / `wordpress_user` / `wordpress_app_password` salvas no banco local e mascaradas no frontend; coluna `noticias.wordpress_post_id` (com migração leve para bancos existentes)
