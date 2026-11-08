@@ -33,6 +33,21 @@ for (const [regex, descricao] of verificacoes) {
   if (!ok) falhas += 1;
 }
 
+// Regra permanente (AGENTS.md): NENHUMA spawn do launcher pode abrir janela de
+// console — toda chamada spawn/spawnSync precisa de windowsHide E detached.
+const chamadasSpawn = [...src.matchAll(/\bspawn(?:Sync)?\(/g)];
+for (const chamada of chamadasSpawn) {
+  const trecho = src.slice(chamada.index, chamada.index + 700);
+  const temJanelaOculta = /windowsHide:\s*true/.test(trecho);
+  const temGrupoIsolado = /detached:\s*true/.test(trecho);
+  if (temJanelaOculta && temGrupoIsolado) {
+    console.log('PASS — spawn com windowsHide + detached (sem janela de console no usuário)');
+  } else {
+    console.log(`FAIL — spawn sem windowsHide/detached: ${trecho.slice(0, 80).replace(/\n/g, ' ')}…`);
+    falhas += 1;
+  }
+}
+
 if (falhas > 0) {
   console.error(`Isolamento de processos: ${falhas} verificação(ões) falharam.`);
   process.exit(1);

@@ -87,7 +87,7 @@ async function findFreePort(base, maxTries) {
 function encerrarPorPid(pid, motivo) {
   try {
     if (process.platform === 'win32') {
-      spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { windowsHide: true });
+      spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { windowsHide: true, detached: true });
     } else {
       process.kill(pid, 'SIGTERM');
     }

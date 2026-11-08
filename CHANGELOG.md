@@ -2,6 +2,12 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.4.03 (2026-11-08)
+
+- **Regra permanente no AGENTS.md**: é PROIBIDO criar/publicar versões que abram janelas de terminal (CMD/PowerShell/console Python) no computador do usuário — todo processo filho deve nascer com `windowsHide: true` + grupo isolado, rodar em background com saída apenas em log e ser encerrado por código; versão que exiba janela de console é inválida (hotfix + CHANGELOG)
+- Teste de regressão reforçado: varre **todas** as chamadas `spawn`/`spawnSync` do launcher e falha se qualquer uma perder `windowsHide`/`detached` — o CI passa a barrar isso automaticamente
+- `taskkill` do encerramento gracioso também com `detached: true` (uniformidade da regra)
+
 ## 0.4.02 (2026-11-08)
 
 - **Seletor dinâmico de modelos NVIDIA NIM**: novo endpoint proxy `GET /api/v1/configuracoes/llm/nvidia/models` que consulta a NVIDIA em tempo real com a chave do usuário — a API key nunca é exposta ao frontend/Network tab

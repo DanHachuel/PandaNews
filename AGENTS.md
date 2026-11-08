@@ -24,6 +24,16 @@ Sempre que uma sessão de agente criar commits, o ramo deve ser enviado de imedi
 
 **UX sem travas de pré-registo** — nunca criar travas de pré-registo; validações de credenciais apenas no momento da acção que realmente precisa delas.
 
+## Proibição de janelas de console/CMD (permanente)
+
+É **PROIBIDO** criar ou publicar versões que abram janelas de terminal (CMD, PowerShell, console Python ou qualquer outra tela preta) no computador do usuário. Qualquer processo filho lançado pelo app — backend Python, subprocessos do pipeline, scripts auxiliares — deve:
+
+- **No Windows**, nascer com `windowsHide: true` e grupo de processo isolado (`detached: true`) — nunca herdar o console do launcher;
+- **Em qualquer plataforma**, rodar em background, com saída apenas em arquivo de log, sem alocar terminal visível;
+- ser encerrado **sempre por código** (`taskkill /PID /T` no Windows, sinal no grupo no Unix), nunca por propagação de sinais do terminal.
+
+Uma versão que exiba qualquer janela de console no computador do usuário é **inválida**: deve ser corrigida antes da publicação ou imediatamente depois (hotfix), com a entrada correspondente no CHANGELOG. O teste `scripts/test-start-isolation.mjs` (rodado no CI) falha o build se qualquer spawn do launcher perder `windowsHide: true` ou `detached: true`.
+
 ## Comandos de instalação
 
 Após cada versão, entregar sempre os comandos no formato:
