@@ -2,6 +2,18 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.4.04 (2026-11-08)
+
+- **HOTFIX real — fim das janelas de CMD no instalador**: o 0.4.03 blindou apenas o launcher (`start.js`) e deixou o **caminho de instalação** descoberto. No Windows, `tar` (extração do Python portátil), `python -m venv` e `pip install -r requirements.txt` eram lançados **sem `windowsHide`** — era aí que as múltiplas janelas de terminal apareciam. Os três `spawnSync` de `scripts/install.js` agora nascem com `windowsHide: true` (`CREATE_NO_WINDOW`)
+- `scripts/build.js` blindado também: `npm install` e `npm run build` do frontend são chamados com `shell: true` (o wrapper `cmd.exe`/`npm.cmd` entra na conta) — ambos agora com `windowsHide: true`, sem piscar tela preta
+- Saída preservada: o instalador mantém `stdio: 'inherit'`, então o progresso continua visível **no console que o usuário já abriu** — só a janela extra deixa de existir (verificado empiricamente no Windows)
+- **Helper Python único e obrigatório**: `backend/core/proc.py` expõe `run_silent_process` / `run_silent` / `spawn_silent` / `call_silent` / `check_output_silent` / `system_silent`, aplicando `CREATE_NO_WINDOW = 0x08000000` via `creationflags` no Windows. O pipeline e o APScheduler rodam em memória (threads do `BackgroundScheduler`), sem processos do SO; o helper é o ponto único para qualquer subprocesso futuro
+- **Teste de regressão ampliado e validado**: `scripts/test-start-isolation.mjs` deixa de olhar só o `start.js` e passa a varrer **todos** os pontos de entrada — `start.js`, `install.js`, `build.js` e `bin/cli.js` — exigindo `windowsHide: true` em cada `spawn`/`spawnSync`/`exec`/`execSync` (inclusive quando as opções vêm de constante compartilhada, ex. `...SILENT_WINDOWS`)
+- O teste também trava regressões do backend Python: qualquer `subprocess.run/Popen/call/check_output/check_call` ou `os.system`/`os.popen` direto em `backend/**/*.py` falha o build (precisa passar por `backend.core.proc`)
+- E ainda barra `uvicorn` com `--reload`/`--workers` no launcher — cada worker é um processo filho extra que, no Windows, pode alocar console próprio e ignorar as flags do pai
+- **Guard verificado por mutação**: com a flag removida do `pip`, com um `subprocess.run` direto no backend e com `--reload` no uvicorn, o teste falha em todos os casos (exit 1) — não é carimbo de borracha
+- Nota de transparência: a colisão de versão com o 0.4.03 já publicado no registry foi resolvida por renumeração, conforme a regra de sessões simultâneas do AGENTS.md
+
 ## 0.4.03 (2026-11-08)
 
 - **Regra permanente no AGENTS.md**: é PROIBIDO criar/publicar versões que abram janelas de terminal (CMD/PowerShell/console Python) no computador do usuário — todo processo filho deve nascer com `windowsHide: true` + grupo isolado, rodar em background com saída apenas em log e ser encerrado por código; versão que exiba janela de console é inválida (hotfix + CHANGELOG)

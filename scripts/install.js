@@ -21,6 +21,20 @@ import fse from 'fs-extra';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 export const PKG_ROOT = join(__dirname, '..');
 
+// ------------------------------------------------------------------------
+// Regra permanente (AGENTS.md): é PROIBIDO abrir janelas de terminal (CMD,
+// PowerShell, console Python) no computador do usuário. Todo processo filho
+// lançado pelo instalador nasce no Windows com `windowsHide: true`, que aplica
+// a flag CREATE_NO_WINDOW — nenhuma tela preta aparece.
+//
+// `detached: true` NÃO é usado aqui de propósito: essas chamadas são curtas
+// (tar/venv/pip) e o `stdio: 'inherit'` mantém o progresso no console que o
+// usuário JÁ abriu. Com CREATE_NO_WINDOW o filho escreve nos handles herdados
+// sem alocar uma janela extra. O teste scripts/test-start-isolation.mjs varre
+// este arquivo e falha o build se qualquer spawn perder o windowsHide.
+// ------------------------------------------------------------------------
+const SILENT_WINDOWS = { windowsHide: true };
+
 const PYTHON_VERSION = '3.12.7';
 const PYTHON_RELEASE = '20241016';
 
@@ -152,7 +166,7 @@ async function downloadPython(home, platform) {
   const buf = Buffer.from(await res.arrayBuffer());
   writeFileSync(archive, buf);
   console.log(`Download concluído (${(buf.length / 1024 / 1024).toFixed(1)} MB). Extraindo...`);
-  const tar = spawnSync('tar', ['-xzf', archive, '-C', runtimeDir]);
+  const tar = spawnSync('tar', ['-xzf', archive, '-C', runtimeDir], SILENT_WINDOWS);
   if (tar.status !== 0) throw new Error('Falha ao extrair o Python portátil (tar).');
   if (!existsSync(pythonBin(home))) {
     throw new Error('Extração do Python concluída, mas o binário não foi encontrado.');
@@ -162,7 +176,10 @@ async function downloadPython(home, platform) {
 
 function createVenv(home) {
   console.log('Criando virtualenv...');
-  const venv = spawnSync(pythonBin(home), ['-m', 'venv', join(home, '.runtime', 'venv')], { stdio: 'inherit' });
+  const venv = spawnSync(pythonBin(home), ['-m', 'venv', join(home, '.runtime', 'venv')], {
+    stdio: 'inherit',
+    ...SILENT_WINDOWS,
+  });
   if (venv.status !== 0) throw new Error('Falha ao criar o virtualenv.');
   if (!existsSync(venvBin(home))) throw new Error('Virtualenv criado, mas o binário não foi encontrado.');
 }
@@ -173,7 +190,7 @@ function installDeps(home) {
   const pip = spawnSync(
     venvBin(home),
     ['-m', 'pip', 'install', '--disable-pip-version-check', '-r', req],
-    { stdio: 'inherit' },
+    { stdio: 'inherit', ...SILENT_WINDOWS },
   );
   if (pip.status !== 0) throw new Error('Falha ao instalar as dependências do backend.');
 }

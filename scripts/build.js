@@ -15,12 +15,18 @@ export async function runBuild() {
     return;
   }
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  // Regra permanente (AGENTS.md): NENHUM spawn pode abrir janela de console
+  // no computador do usuário. No Windows o filho nasce com CREATE_NO_WINDOW
+  // (windowsHide: true) — com `shell: true` o wrapper cmd.exe também nasce
+  // oculto, sem piscar tela preta. O stdio segue 'inherit': a saída fica no
+  // console que o usuário já abriu.
+  const SILENT_WINDOWS = { windowsHide: true };
   console.log('Instalando dependências do frontend...');
   // shell: true — obrigatório para .cmd no Windows (Node >= 18)
-  const install = spawnSync(npmCmd, ['install'], { cwd: frontendDir, stdio: 'inherit', shell: true });
+  const install = spawnSync(npmCmd, ['install'], { cwd: frontendDir, stdio: 'inherit', shell: true, ...SILENT_WINDOWS });
   if (install.status !== 0) throw new Error('Falha ao instalar dependências do frontend.');
   console.log('Compilando o frontend...');
-  const build = spawnSync(npmCmd, ['run', 'build'], { cwd: frontendDir, stdio: 'inherit', shell: true });
+  const build = spawnSync(npmCmd, ['run', 'build'], { cwd: frontendDir, stdio: 'inherit', shell: true, ...SILENT_WINDOWS });
   if (build.status !== 0) throw new Error('Falha ao compilar o frontend.');
   console.log('Frontend compilado em frontend/dist.');
 }
