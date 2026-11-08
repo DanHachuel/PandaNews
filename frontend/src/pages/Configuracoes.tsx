@@ -237,13 +237,27 @@ export function Configuracoes() {
                 Testar conexão
               </Button>
               {testes.google && (
-                <Badge tone={testes.google.ok ? 'green' : 'red'}>
-                  {testes.google.ok ? `ok · ${testes.google.latency_ms}ms` : 'falhou'}
+                <Badge
+                  tone={testes.google.ok ? 'green' : testes.google.degraded ? 'amber' : 'red'}
+                >
+                  {testes.google.ok
+                    ? `ok · ${testes.google.latency_ms}ms`
+                    : testes.google.degraded
+                      ? 'degraded'
+                      : 'falhou'}
                 </Badge>
               )}
             </div>
           </div>
-          {testes.google && !testes.google.ok && <p className="mt-3 text-xs text-red-400">{testes.google.detail}</p>}
+          {testes.google && !testes.google.ok && (
+            <p
+              className={`mt-3 text-xs ${
+                testes.google.degraded ? 'text-amber-500' : 'text-red-400'
+              }`}
+            >
+              {testes.google.detail}
+            </p>
+          )}
         </Expander>
 
         <Expander title="Ordem de fallback dos provedores">
