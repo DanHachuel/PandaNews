@@ -2,6 +2,12 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.4.02 (2026-11-08)
+
+- **Seletor dinâmico de modelos NVIDIA NIM**: novo endpoint proxy `GET /api/v1/configuracoes/llm/nvidia/models` que consulta a NVIDIA em tempo real com a chave do usuário — a API key nunca é exposta ao frontend/Network tab
+- Campo "Modelo" da NVIDIA em Configurações agora é um `<select>` populado automaticamente (5 min de cache, botão ↻ para recarregar) — o usuário não digita mais IDs
+- Resiliência: sem chave, offline ou lista indisponível, o select mantém o modelo atual como opção (fallback) com aviso âmbar — nada de travar a tela
+
 ## 0.4.01 (2026-11-08)
 
 - **Isolamento de processos (Windows/MobaXterm)**: o backend Python roda em grupo de processos próprio (`detached: true` → `CREATE_NEW_PROCESS_GROUP`) com `windowsHide: true` (sem janela fantasma) e `stdio` em fd do arquivo — um Ctrl+C no terminal agora derruba **apenas o launcher Node**; o backend e as gerações em andamento sobrevivem

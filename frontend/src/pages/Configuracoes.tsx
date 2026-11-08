@@ -64,6 +64,19 @@ export function Configuracoes() {
     mutationFn: () => apiSend<TestResult>('/configuracoes/testar-supabase', 'POST'),
   });
 
+  // Lista dinâmica de modelos NVIDIA NIM (proxy — a chave nunca vai ao frontend).
+  const {
+    data: modelosData,
+    isFetching: carregandoModelos,
+    refetch: recarregarModelos,
+  } = useQuery({
+    queryKey: ['nvidia-models'],
+    queryFn: () => apiGet<{ models: string[] }>('/configuracoes/llm/nvidia/models'),
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const modelosNvidia = modelosData?.models ?? [];
+
   const verSchema = useMutation({
     mutationFn: () => apiGet<{ sql: string }>('/configuracoes/schema-supabase'),
     onSuccess: (d) => setSchemaSql(d.sql),
@@ -125,8 +138,42 @@ export function Configuracoes() {
             <Field label="Base URL">
               <input className={inputClass} value={form.nvidia_base_url} onChange={(e) => setForm({ ...form, nvidia_base_url: e.target.value })} />
             </Field>
-            <Field label="Modelo">
-              <input className={inputClass} value={form.nvidia_model} onChange={(e) => setForm({ ...form, nvidia_model: e.target.value })} />
+            <Field
+              label="Modelo"
+              hint={
+                modelosNvidia.length > 0
+                  ? `${modelosNvidia.length} modelos disponíveis para sua chave NVIDIA`
+                  : 'Lista carregada dinamicamente da NVIDIA NIM'
+              }
+            >
+              <div className="flex gap-2">
+                <select
+                  className={inputClass}
+                  value={form.nvidia_model}
+                  onChange={(e) => setForm({ ...form, nvidia_model: e.target.value })}
+                  disabled={carregandoModelos}
+                >
+                  {carregandoModelos && <option value="">Carregando modelos…</option>}
+                  {/* Fallback resiliente: mantém o modelo atual se a lista não o trouxer */}
+                  {form.nvidia_model && !modelosNvidia.includes(form.nvidia_model) && (
+                    <option value={form.nvidia_model}>{form.nvidia_model} (atual)</option>
+                  )}
+                  {modelosNvidia.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                <Button variant="secondary" onClick={() => recarregarModelos()} disabled={carregandoModelos} title="Atualizar lista da NVIDIA">
+                  ↻
+                </Button>
+              </div>
+              {!carregandoModelos && modelosNvidia.length === 0 && (
+                <p className="mt-2 text-xs text-amber-500">
+                  Lista indisponível (chave não configurada ou NVIDIA fora do ar) — o modelo atual é mantido. Configure a
+                  API key e clique em ↻ para buscar.
+                </p>
+              )}
             </Field>
             <div className="flex items-end gap-2">
               <Button variant="secondary" onClick={() => testar.mutate('nvidia')} disabled={testar.isPending}>

@@ -1,7 +1,7 @@
 """Configurações (/api/v1/configuracoes) — API keys mascaradas, sem travas."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.app.schemas import ConfiguracoesPatch
@@ -41,6 +41,34 @@ def obter_configuracoes(db: Session = Depends(get_db)) -> dict:
         "supabase_detectado": bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
         or bool(get_config(db, "supabase_url") and get_config(db, "supabase_service_role_key")),
     }
+
+
+@router.get("/llm/nvidia/models")
+def listar_modelos_nvidia(db: Session = Depends(get_db)) -> dict:
+    """Lista os modelos NVIDIA NIM disponíveis para a chave configurada.
+
+    Proxy: a API key fica no banco local e nunca é exposta ao frontend.
+    Retorna 400 sem chave; 502 em falha de consulta.
+    """
+    import httpx
+
+    from backend.core.llm_router import provider_config
+
+    cfg = provider_config(db, "nvidia")
+    if not cfg["api_key"]:
+        raise HTTPException(status_code=400, detail="API Key da NVIDIA não configurada — adicione-a antes de listar os modelos.")
+    url = cfg["base_url"].rstrip("/") + "/models"
+    try:
+        resposta = httpx.get(url, headers={"Authorization": f"Bearer {cfg['api_key']}"}, timeout=20.0)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Erro ao consultar a NVIDIA: {exc}") from exc
+    if resposta.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"NVIDIA respondeu {resposta.status_code}: {resposta.text[:200]}",
+        )
+    ids = sorted(str(m.get("id")) for m in resposta.json().get("data", []) if m.get("id"))
+    return {"models": ids, "modelo_atual": cfg["model"], "base_url": cfg["base_url"]}
 
 
 @router.post("/testar-supabase")
