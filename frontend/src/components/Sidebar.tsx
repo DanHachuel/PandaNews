@@ -18,7 +18,13 @@ export function Sidebar() {
       <div className="flex items-center gap-2.5 px-5 py-5">
         <PandaLogo />
         <div>
-          <div className="text-lg font-extrabold leading-none">PandaNews</div>
+          <div className="flex items-center gap-2">
+            <div className="text-lg font-extrabold leading-none">PandaNews</div>
+            {/* Versão dinâmica (injetada do package.json da raiz via vite.config) */}
+            <span className="rounded border border-slate-300 px-1.5 py-0.5 font-mono text-[10px] text-slate-400 dark:border-slate-600">
+              v{__APP_VERSION__}
+            </span>
+          </div>
           <div className="text-[11px] text-slate-500">blogs de notícias com IA</div>
         </div>
       </div>
@@ -41,7 +47,7 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <div className="px-5 py-4 text-[11px] text-slate-400 dark:text-slate-600">100% local · SQLite · v0.4.00</div>
+      <div className="px-5 py-4 text-[11px] text-slate-400 dark:text-slate-600">100% local · SQLite</div>
     </aside>
   );
 }

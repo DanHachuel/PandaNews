@@ -21,6 +21,11 @@ Todas as versões publicadas são registradas aqui antes do publish (regra em AG
 - **Causa do "backend morrendo" descartada**: todos os módulos importam limpo — `backend.app.main`, `wordpress_publisher`, `pipeline`, `scheduler`, `proc`. Nenhum `openai` no código, nenhuma dependência de terceiros faltando em `requirements.txt`. O `backend.log` confirma 35 inicializações completas; o backend atual está no ar desde 21:20
 - Colisão de versão resolvida por renumeração (0.4.10 já publicado, regra do AGENTS.md)
 
+## 0.5.01 (2026-11-08)
+
+- **Badge de versão dinâmica no sidebar** (padrão Thunderbolt/ProdMaker): `PandaNews vX.Y.Z` ao lado do nome, com a versão injetada do `package.json` da raiz via `define` do Vite (`__APP_VERSION__`) — atualiza sozinha a cada release, sem edição manual do React; `vite-env.d.ts` tipa a global
+- Removida a versão hardcoded do rodapé do sidebar (agora só a badge dinâmica)
+
 ## 0.5.00 (2026-11-08)
 
 - **Módulo Publicador WordPress** (preparação para monetização AdSense): credenciais `wordpress_url` / `wordpress_user` / `wordpress_app_password` salvas no banco local e mascaradas no frontend; coluna `noticias.wordpress_post_id` (com migração leve para bancos existentes)
