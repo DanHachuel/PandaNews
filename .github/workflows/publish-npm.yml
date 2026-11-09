@@ -68,9 +68,9 @@ jobs:
       - name: Test no console windows (start/install/build/cli + backend Python)
         run: node scripts/test-start-isolation.mjs
 
-      - name: Test LLM fallback (NVIDIA 410/404 -> Gemini)
+      - name: Test LLM fallback (NVIDIA 410/404 -> Gemini) + prefixo nvidia_nim/ fora do payload
         run: |
-          pip install --quiet --disable-pip-version-check httpx
+          pip install --quiet --disable-pip-version-check httpx fastapi pydantic
           python backend/tests/test_llm_fallback.py
 
       - name: Smoke test launcher install

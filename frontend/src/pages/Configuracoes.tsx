@@ -8,6 +8,11 @@ type TestResult = { ok: boolean; detail?: string; latency_ms?: number; model?: s
 
 const NOME_PROVEDOR: Record<string, string> = { nvidia: 'NVIDIA NIM', google: 'Google Gemini' };
 
+// HOTFIX 0.5.03: `nvidia_nim/` é convenção do LiteLLM, não da API da NVIDIA.
+// O prefixo é removido de tudo que a UI exibe e de tudo que vai para o PUT —
+// nunca deve sobrar um id que a NVIDIA recusaria no /chat/completions.
+const limparModelo = (id: string) => (id ?? '').replace(/^\s*nvidia_nim\//i, '').trim();
+
 export function Configuracoes() {
   const queryClient = useQueryClient();
   const { data: config } = useQuery({
@@ -50,9 +55,9 @@ export function Configuracoes() {
     if (!config) return;
     setForm({
       nvidia_base_url: config.nvidia_base_url,
-      nvidia_model: config.nvidia_model,
+      nvidia_model: limparModelo(config.nvidia_model),
       google_base_url: config.google_base_url,
-      google_model: config.google_model,
+      google_model: limparModelo(config.google_model),
       llm_fallback_ordem: config.llm_fallback_ordem,
       supabase_url: config.supabase_url,
       intervalo_padrao_horas: config.intervalo_padrao_horas,
@@ -97,7 +102,9 @@ export function Configuracoes() {
     retry: false,
     staleTime: 5 * 60 * 1000,
   });
-  const modelosNvidia = modelosData?.models ?? [];
+  // Lista limpa (sem `nvidia_nim/`) e sem duplicatas — o valor do <select> e o
+  // PUT só conhecem o id que a API da NVIDIA aceita.
+  const modelosNvidia = Array.from(new Set((modelosData?.models ?? []).map(limparModelo)));
   // Modelo saiu do catálogo (404/410): avisa antes do usuário clicar em testar.
   const modeloForaDoCatalogo =
     modelosData?.modelo_atual_disponivel === false && modelosNvidia.length > 0;
@@ -113,7 +120,10 @@ export function Configuracoes() {
   });
 
   function salvarTudo() {
-    const payload: Record<string, unknown> = { ...form };
+    const payload: Record<string, unknown> = {
+      ...form,
+      nvidia_model: limparModelo(form.nvidia_model),
+    };
     if (secrets.nvidia_api_key.trim()) payload.nvidia_api_key = secrets.nvidia_api_key.trim();
     if (secrets.google_api_key.trim()) payload.google_api_key = secrets.google_api_key.trim();
     if (secrets.supabase_service_role_key.trim()) payload.supabase_service_role_key = secrets.supabase_service_role_key.trim();
@@ -205,9 +215,9 @@ export function Configuracoes() {
               </div>
               {modeloForaDoCatalogo && (
                 <p className="mt-2 text-xs text-red-400">
-                  O modelo <code className="font-mono">{modelosData?.modelo_atual}</code> não está mais no catálogo da
-                  NVIDIA (404/410 — fim de vida). Escolha outro na lista: as gerações estão caindo no Gemini por
-                  fallback.
+                  O modelo <code className="font-mono">{limparModelo(modelosData?.modelo_atual ?? '')}</code> não está
+                  mais no catálogo da NVIDIA (404/410 — fim de vida). Escolha outro na lista: as gerações estão caindo
+                  no Gemini por fallback.
                 </p>
               )}
               {!carregandoModelos && modelosNvidia.length === 0 && (

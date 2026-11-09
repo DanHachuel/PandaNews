@@ -10,6 +10,9 @@ Cobre exatamente o que a correção promete:
   3. Todos os provedores falhando -> RuntimeError clara (não silenciosa).
   4. `test_provider` devolve a string de erro do provedor ( HTTP 410/404 ),
      marcando `degraded`, para o frontend exibir.
+  5. HOTFIX 0.5.03 — o prefixo de proxy `nvidia_nim/` (convenção LiteLLM)
+     nunca chega ao POST /v1/chat/completions: o JSON enviado à NVIDIA
+     carrega só `mistralai/mistral-large-4-1t-a52b`.
 """
 from __future__ import annotations
 
@@ -32,8 +35,12 @@ import types  # noqa: E402
 if "backend.core.database" not in sys.modules:
     _stub = types.ModuleType("backend.core.database")
 
-    class _ConfiguracaoStub:  # noqa: D401 - apenas um marcador para o .get()
-        """Stub: o FakeDB abaixo responde ao `.get()` sem tocar no ORM."""
+    class _ConfiguracaoStub:
+        """Stub do modelo ORM: o FakeDB abaixo responde ao `.get()` sem tocar no ORM."""
+
+        def __init__(self, chave: str = "", valor: str = "") -> None:
+            self.chave = chave
+            self.valor = valor
 
     _stub.Configuracao = _ConfiguracaoStub
     sys.modules["backend.core.database"] = _stub
@@ -50,10 +57,16 @@ class FakeDB:
     """Banco mínimo: só o que provider_config()/get_config() precisam."""
 
     def __init__(self, valores: dict[str, str]) -> None:
-        self.valores = valores
+        self.valores = dict(valores)
 
     def get(self, _modelo, chave: str):
         return _Row(self.valores[chave]) if chave in self.valores else None
+
+    def add(self, row) -> None:  # PUT de configurações grava por aqui
+        self.valores[row.chave] = row.valor
+
+    def commit(self) -> None:
+        pass
 
 
 def _db_com_chaves() -> FakeDB:
@@ -197,6 +210,7 @@ class _RespostaHttp:
         self.status_code = status_code
         self._corpo = corpo
         self.text = json.dumps(corpo)
+        self.elapsed = _timedelta(milliseconds=1)
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -267,6 +281,169 @@ check(
     and headers.get("Content-Type") == "application/json"
     and headers.get("Accept") == "application/json",
     "headers OpenAI-compatible: Bearer + Content-Type + Accept (como o Thunderbolt)",
+)
+
+# ------------------------------- 5) HOTFIX 0.5.03 — prefixo nvidia_nim/ fora
+
+# O id `nvidia_nim/mistralai/mistral-large-4-1t-a52b` é convenção do LiteLLM.
+# A API da NVIDIA só aceita `mistralai/mistral-large-4-1t-a52b` — o payload do
+# POST /v1/chat/completions tem de sair limpo.
+check(
+    llm_router.limpar_nome_modelo("nvidia_nim/mistralai/mistral-large-4-1t-a52b")
+    == "mistralai/mistral-large-4-1t-a52b",
+    "limpar_nome_modelo: 'nvidia_nim/' é removido do id",
+)
+check(
+    llm_router.limpar_nome_modelo("mistralai/mistral-large-4-1t-a52b")
+    == "mistralai/mistral-large-4-1t-a52b",
+    "limpar_nome_modelo: id sem prefixo (barra de fornecedor inclusa) fica intacto",
+)
+check(
+    llm_router.limpar_nome_modelo(" NVIDIA_NIM/nvidia_nim/meta/llama-3.3-70b-instruct ")
+    == "meta/llama-3.3-70b-instruct",
+    "limpar_nome_modelo: maiúsculas, espaços e prefixo duplicado também saem",
+)
+check(
+    llm_router.limpar_nome_modelo("") == "" and llm_router.limpar_nome_modelo(None) == "",
+    "limpar_nome_modelo: vazio/None não explodem",
+)
+
+db_prefixada = FakeDB(
+    {
+        "nvidia_api_key": "nv-test",
+        # valor como viria de outra ferramenta (LiteLLM) ou de dump de config
+        "nvidia_model": "nvidia_nim/mistralai/mistral-large-4-1t-a52b",
+    }
+)
+
+check(
+    llm_router.provider_config(db_prefixada, "nvidia")["model"] == "mistralai/mistral-large-4-1t-a52b",
+    "provider_config: o modelo sai do banco já limpo (sem nvidia_nim/)",
+)
+
+# 5b) o payload REAL do POST /v1/chat/completions — capturado no fio.
+payloads_enviados: list[dict] = []
+
+
+class _ClientCapturador:
+    """Guarda o JSON de cada post e devolve 200 com conteúdo utilizável."""
+
+    def __init__(self, *a, **k) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def post(self, endpoint, headers=None, json=None):
+        payloads_enviados.append(json)
+        modelo = (json or {}).get("model", "")
+        return _RespostaHttp(
+            200,
+            {"choices": [{"message": {"content": '{"titulo":"T","resumo":"R","corpo":"C"}'}}], "model": modelo},
+        )
+
+
+llm_router.httpx.Client = _ClientCapturador
+
+texto_hotfix, modelo_hotfix = llm_router.chamar_provedor(db_prefixada, "nvidia", "escreva uma noticia", 64)
+
+payload_hotfix = payloads_enviados[-1]
+check(
+    payload_hotfix.get("model") == "mistralai/mistral-large-4-1t-a52b",
+    f"chamar_provedor: payload['model'] limpo — obtido: {payload_hotfix.get('model')!r}",
+)
+check(
+    "nvidia_nim" not in str(payload_hotfix.get("model", "")),
+    "chamar_provedor: nenhum resto de 'nvidia_nim' no model do JSON enviado",
+)
+check(
+    payload_hotfix.get("messages") == [{"role": "user", "content": "escreva uma noticia"}]
+    and payload_hotfix.get("max_tokens") == 64,
+    "chamar_provedor: o resto do payload (messages/max_tokens) intacto",
+)
+check(
+    modelo_hotfix == "mistralai/mistral-large-4-1t-a52b",
+    "chamar_provedor: o modelo devolvido ao caller também é o id limpo",
+)
+check("titulo" in texto_hotfix, "chamar_provedor: a chamada com prefixo chega ao 200 normalmente")
+
+# 5c) o teste de conexão prova o MESMO model que a geração envia
+resultado_hotfix = llm_router.test_provider(db_prefixada, "nvidia")
+check(
+    resultado_hotfix.get("ok") is True,
+    f"test_provider: OK com o modelo antes prefixado — detail: {resultado_hotfix.get('detail')}",
+)
+check(
+    payloads_enviados[-1].get("model") == "mistralai/mistral-large-4-1t-a52b",
+    "test_provider: o POST de teste também vai com o id limpo",
+)
+check(
+    resultado_hotfix.get("model") == "mistralai/mistral-large-4-1t-a52b",
+    "test_provider: 'model' do JSON de resposta é o id limpo",
+)
+
+# 5d) descoberta de modelos + PUT: a UI só vê e só salva o id limpo
+try:
+    import sqlalchemy.orm  # noqa: F401
+except ModuleNotFoundError:  # CI instala só httpx — stub mantém o teste autônomo
+    _stub_sa = types.ModuleType("sqlalchemy")
+    _stub_orm = types.ModuleType("sqlalchemy.orm")
+
+    class _SessionStub:  # só existe por causa da anotação de tipo da rota
+        pass
+
+    _stub_orm.Session = _SessionStub
+    _stub_sa.orm = _stub_orm
+    sys.modules["sqlalchemy"] = _stub_sa
+    sys.modules["sqlalchemy.orm"] = _stub_orm
+
+if not hasattr(sys.modules["backend.core.database"], "get_db"):
+    sys.modules["backend.core.database"].get_db = lambda: None
+
+from backend.app.routers import configuracoes  # noqa: E402
+from backend.app.schemas import ConfiguracoesPatch  # noqa: E402
+
+# A NVIDIA (ou um proxy à frente dela) devolve um id já com o prefixo.
+_resposta_get_original = llm_router.httpx.get
+llm_router.httpx.get = lambda url, **kw: _RespostaHttp(
+    200,
+    {
+        "data": [
+            {"id": "nvidia_nim/mistralai/mistral-large-4-1t-a52b"},
+            {"id": "mistralai/mistral-large-2-instruct"},
+        ]
+    },
+)
+try:
+    catalogo = configuracoes.listar_modelos_nvidia(db_prefixada)
+finally:
+    llm_router.httpx.get = _resposta_get_original
+
+check(
+    catalogo.get("models")
+    == ["mistralai/mistral-large-2-instruct", "mistralai/mistral-large-4-1t-a52b"],
+    f"descoberta: lista devolvida à UI sem 'nvidia_nim/' — obtido: {catalogo.get('models')}",
+)
+check(
+    catalogo.get("modelo_atual") == "mistralai/mistral-large-4-1t-a52b"
+    and catalogo.get("modelo_atual_disponivel") is True,
+    "descoberta: modelo salvo com prefixo é reconhecido no catálogo (id limpo dos dois lados)",
+)
+
+db_put = FakeDB({})
+configuracoes.salvar_configuracoes(
+    ConfiguracoesPatch(nvidia_model="nvidia_nim/mistralai/mistral-large-4-1t-a52b"), db_put
+)
+check(
+    db_put.valores.get("nvidia_model") == "mistralai/mistral-large-4-1t-a52b",
+    f"PUT: grava só o id limpo no banco — obtido: {db_put.valores.get('nvidia_model')!r}",
+)
+check(
+    configuracoes.obter_configuracoes(db_put)["nvidia_model"] == "mistralai/mistral-large-4-1t-a52b",
+    "GET: a UI recebe o id limpo mesmo com valor prefixado no banco",
 )
 
 # ------------------------------------------------------------- veredicto

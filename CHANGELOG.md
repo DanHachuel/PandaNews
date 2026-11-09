@@ -2,6 +2,15 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.5.03 (2026-11-09)
+
+- **HOTFIX — prefixo `nvidia_nim/` removido antes de chamar a API da NVIDIA**: os ids de modelo estavam a ser guardados/enviados com o prefixo de convenção do LiteLLM (`nvidia_nim/mistralai/mistral-large-4-1t-a52b`). Como o PandaNews faz HTTP directo para `https://integrate.api.nvidia.com/v1/chat/completions` — e não passa por um proxy — a NVIDIA não reconhecia o prefixo e devolvia erro de modelo não encontrado
+- `backend/core/llm_router.py`: novo helper `limpar_nome_modelo()` (+ `PREFIXOS_PROXY`) que remove o prefixo do id sem tocar na barra legítima de `fornecedor/modelo`. `provider_config` já entrega o modelo limpo; o payload do POST em `chamar_provedor` e em `test_provider` monta `"model": "mistralai/mistral-large-4-1t-a52b"`, e o modelo devolvido ao caller também é o id limpo
+- `backend/app/routers/configuracoes.py`: `GET /configuracoes` exibe o id limpo; `PUT /configuracoes` grava apenas o id limpo (um valor prefixado nunca mais entra no banco); `GET /configuracoes/llm/nvidia/models` devolve a lista limpa e compara `modelo_atual_disponivel` id-limpo com id-limpo — antes um modelo correcto salvo com prefixo aparecia na UI como "fora do catálogo"
+- **Frontend** (`Configuracoes.tsx`): `limparModelo()` aplicado à lista de modelos, ao valor do `<select>` e ao payload de salvamento — defesa em profundidade, a UI nunca mostra nem reenvia o prefixo
+- **Testes**: 19 verificações novas em `backend/tests/test_llm_fallback.py` (35 no total, todas verdes local e no CI). O teste captura o JSON real do POST e exige `model == "mistralai/mistral-large-4-1t-a52b"` sem resto de `nvidia_nim`, tanto na geração quanto no teste de conexão, e cobre a descoberta de modelos e o PUT
+- **CHANGELOG**: removida a entrada duplicada da 0.5.02 (a sessão anterior deixou duas secções para a mesma versão; a mantida é a mais completa)
+
 ## 0.5.02 (2026-11-09)
 
 - **BUG MEDIDO antes de corrigir**: nesta máquina havia **2 backends uvicorn simultâneos** (porta 8000 e porta 8001) e o ficheiro de PID `data/backend.pid` apontava para o processo **errado** — sintomas exactos do efeito colateral do isolamento por `detached: true`: o backend sobrevive ao terminal, e cada `pandanews start` reaproveitava ou empilhava outra instância em vez de actualizar. Resultado para o utilizador: a UI nova a ser servida por um backend de versão velha
@@ -35,14 +44,6 @@ Todas as versões publicadas são registradas aqui antes do publish (regra em AG
 - **Verificação E2E com grupo de controle**: subindo o launcher real, o processo python ficou com **0 filhos** (antes: 1, o redirector). O hospedeiro de console que apareceu na medição foi atribuído ao próprio `Start-Job` do PowerShell — um job **vazio**, sem nenhum processo filho, já cria 1 `conhost`. Ou seja: nenhuma janela é atribuível ao PandaNews
 - **Causa do "backend morrendo" descartada**: todos os módulos importam limpo — `backend.app.main`, `wordpress_publisher`, `pipeline`, `scheduler`, `proc`. Nenhum `openai` no código, nenhuma dependência de terceiros faltando em `requirements.txt`. O `backend.log` confirma 35 inicializações completas; o backend atual está no ar desde 21:20
 - Colisão de versão resolvida por renumeração (0.4.10 já publicado, regra do AGENTS.md)
-
-## 0.5.02 (2026-11-09)
-
-- **Runtime permanente — fim do EBUSY (crítico)**: o servidor nunca mais roda de dentro do cache do `npx`. O `install` copia o código (`backend/`, `frontend/dist/`, `scripts/`, `bin/`) para `~/.pandanews/runtime/`, imprime "Instalação concluída! O cache do npx foi liberado." e **encerra sem iniciar o servidor**; o `start` atualiza a cópia quando a versão do pacote muda e sobe o backend (cwd no runtime) e a UI (dist do runtime) sempre a partir daí
-- **PID global** em `~/.pandanews/pandanews.pid` (lock JSON: launcher, backend e porta) — sobrevive à atualização do pacote
-- **Comando `pandanews kill`** (alias `stop`): encerra a instância anterior pelo lock + donos de porta, sempre por código e silencioso (`windowsHide` + `stdio: 'ignore'`)
-- AGENTS.md: regra **Runtime permanente (fix do EBUSY)** — servidor nunca corre do cache do npx
-- E2E: `install` copia e sai sem servidor; backend responde a partir da cópia do runtime (provado com marcador de versão injetado na cópia); `start` repetido mata a instância anterior (instância única); `kill` encerra tudo; zero janelas de console
 
 ## 0.5.01 (2026-11-08)
 

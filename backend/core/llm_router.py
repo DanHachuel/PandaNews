@@ -34,6 +34,34 @@ NOMES_PROVEDORES = {"nvidia": "NVIDIA", "google": "Google Gemini"}
 
 TIMEOUT_SEGUNDOS = 60.0
 
+# Prefixos de convenção de proxy (LiteLLM e correlatos). A API da NVIDIA NIM
+# recebe o id "cru" do modelo — `mistralai/mistral-large-4-1t-a52b` — e não
+# reconhece `nvidia_nim/` na frente: devolve 404/400 de "model not found".
+# A barra dentro do id (`fornecedor/modelo`) é legítima e NÃO é removida;
+# apenas o prefixo de proxy é.
+PREFIXOS_PROXY = ("nvidia_nim/",)
+
+
+def limpar_nome_modelo(modelo: str) -> str:
+    """Remove o prefixo de proxy (``nvidia_nim/``) do id do modelo.
+
+    Ids salvos por outra ferramenta (ou colados de documentação do LiteLLM)
+    podem chegar como ``nvidia_nim/mistralai/mistral-large-4-1t-a52b``. Como
+    o PandaNews faz HTTP direto para a NVIDIA, esse prefixo precisa sair
+    antes de montar o payload. A remoção é repetida (prefixo colado duas
+    vezes) e insensível a maiúsculas/espaços; um id sem prefixo volta
+    intacto — em particular `fornecedor/modelo` não é tocado.
+    """
+    nome = str(modelo or "").strip()
+    while nome:
+        for prefixo in PREFIXOS_PROXY:
+            if nome[: len(prefixo)].lower() == prefixo:
+                nome = nome[len(prefixo) :].lstrip()
+                break
+        else:
+            return nome
+    return nome
+
 # Logger filho do uvicorn.error: mensagens vão para o backend.log (e stderr),
 # com a disciplina de logs do servidor.
 logger = logging.getLogger("uvicorn.error.pandanews")
@@ -92,7 +120,8 @@ def provider_config(db, provider: str) -> dict:
     return {
         "api_key": get_config(db, f"{provider}_api_key"),
         "base_url": get_config(db, f"{provider}_base_url", DEFAULT_LLM_BASE_URLS[provider]),
-        "model": get_config(db, f"{provider}_model", DEFAULT_LLM_MODELS[provider]),
+        # O id sai do banco já limpo: nada de `nvidia_nim/` no payload HTTP.
+        "model": limpar_nome_modelo(get_config(db, f"{provider}_model", DEFAULT_LLM_MODELS[provider])),
     }
 
 
@@ -116,8 +145,12 @@ def chamar_provedor(db, provider: str, prompt: str, max_tokens: int) -> tuple[st
     if not endpoint:
         raise RuntimeError(f"{NOMES_PROVEDORES.get(provider, provider)}: Base URL inválida ({cfg['base_url']!r}).")
 
+    # HOTFIX 0.5.03: `nvidia_nim/` é convenção do LiteLLM, não da API da
+    # NVIDIA. O prefixo sai aqui — antes do POST — para o `model` do JSON
+    # ser exatamente o id do catálogo (`mistralai/...`).
+    modelo = limpar_nome_modelo(cfg["model"])
     payload = {
-        "model": cfg["model"],
+        "model": modelo,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
         "max_tokens": max_tokens,
@@ -135,8 +168,7 @@ def chamar_provedor(db, provider: str, prompt: str, max_tokens: int) -> tuple[st
     if not texto:
         raise RuntimeError(f"{NOMES_PROVEDORES.get(provider, provider)}: resposta sem conteúdo.")
 
-    modelo = str(dados.get("model") or cfg["model"])
-    return texto, modelo
+    return texto, modelo or str(dados.get("model") or cfg["model"])
 
 
 def gerar_texto(db, prompt: str, max_tokens: int = 1024) -> tuple[str, str]:
@@ -200,8 +232,11 @@ def test_provider(db, provider: str) -> dict:
     if not endpoint:
         return {"ok": False, "detail": f"Base URL inválida: {cfg['base_url']!r}"}
 
+    # Mesma sanitização da chamada real: o teste tem de provar o mesmo
+    # `model` que a geração de notícias envia.
+    modelo = limpar_nome_modelo(cfg["model"])
     payload = {
-        "model": cfg["model"],
+        "model": modelo,
         "messages": [{"role": "user", "content": "Responda apenas OK."}],
         "max_tokens": 1,
         "temperature": 0,
@@ -227,12 +262,12 @@ def test_provider(db, provider: str) -> dict:
             "degraded": True,
             "status": resp.status_code,
             "detail": (
-                f"Modelo '{cfg['model']}' indisponível na NVIDIA (HTTP {resp.status_code}): "
+                f"Modelo '{modelo}' indisponível na NVIDIA (HTTP {resp.status_code}): "
                 f"{resp.text[:200]} — use o botão ↻ para escolher um modelo do catálogo. "
                 "As notícias seguem sendo geradas pelo Gemini (fallback)."
                 if provider == "nvidia"
                 else (
-                    f"Modelo '{cfg['model']}' indisponível no Gemini (HTTP {resp.status_code}): "
+                    f"Modelo '{modelo}' indisponível no Gemini (HTTP {resp.status_code}): "
                     f"{resp.text[:200]} — as notícias seguem sendo geradas pela NVIDIA (primário)."
                 )
             ),
@@ -248,7 +283,7 @@ def test_provider(db, provider: str) -> dict:
         "ok": True,
         "status": 200,
         "latency_ms": elapsed_ms,
-        "model": cfg["model"],
+        "model": modelo,
         "base_url": cfg["base_url"],
         "endpoint": endpoint,
     }

@@ -7,11 +7,15 @@ from sqlalchemy.orm import Session
 from backend.app.schemas import ConfiguracoesPatch
 from backend.core.config import DEFAULT_LLM_BASE_URLS, DEFAULT_LLM_MODELS, SUPABASE_URL
 from backend.core.database import Configuracao, get_db
-from backend.core.llm_router import get_config
+from backend.core.llm_router import get_config, limpar_nome_modelo
 
 router = APIRouter(prefix="/configuracoes", tags=["configuracoes"])
 
 SECRET_KEYS = ("nvidia_api_key", "google_api_key", "supabase_service_role_key")
+
+# Chaves de configuração que guardam id de modelo — passam pela sanitização
+# do prefixo de proxy (`nvidia_nim/`) tanto na leitura quanto na escrita.
+CHAVES_MODELO = ("nvidia_model", "google_model")
 
 
 def _mask(value: str) -> dict:
@@ -27,10 +31,10 @@ def obter_configuracoes(db: Session = Depends(get_db)) -> dict:
     return {
         "nvidia_api_key": _mask(get_config(db, "nvidia_api_key")),
         "nvidia_base_url": get_config(db, "nvidia_base_url", DEFAULT_LLM_BASE_URLS["nvidia"]),
-        "nvidia_model": get_config(db, "nvidia_model", DEFAULT_LLM_MODELS["nvidia"]),
+        "nvidia_model": limpar_nome_modelo(get_config(db, "nvidia_model", DEFAULT_LLM_MODELS["nvidia"])),
         "google_api_key": _mask(get_config(db, "google_api_key")),
         "google_base_url": get_config(db, "google_base_url", DEFAULT_LLM_BASE_URLS["google"]),
-        "google_model": get_config(db, "google_model", DEFAULT_LLM_MODELS["google"]),
+        "google_model": limpar_nome_modelo(get_config(db, "google_model", DEFAULT_LLM_MODELS["google"])),
         "llm_fallback_ordem": get_config(db, "llm_fallback_ordem", "nvidia,google"),
         "db_backend": get_config(db, "db_backend", "supabase" if SUPABASE_URL else "sqlite"),
         "supabase_url": SUPABASE_URL,
@@ -51,6 +55,10 @@ def listar_modelos_nvidia(db: Session = Depends(get_db)) -> dict:
     Retorna 400 sem chave; 502 em falha de consulta. A Base URL é normalizada
     pelo mesmo helper do Thunderbolt, então ``/v1``, ``/v1/models`` e
     ``/v1/chat/completions`` são aceitos sem duplicar o sufixo.
+
+    HOTFIX 0.5.03: os ids voltam **limpos** — sem o prefixo ``nvidia_nim/``
+    de convenção do LiteLLM. O frontend só exibe (e só pode salvar) o id que
+    a API da NVIDIA aceita no ``/chat/completions``.
     """
     import httpx
 
@@ -85,14 +93,16 @@ def listar_modelos_nvidia(db: Session = Depends(get_db)) -> dict:
         dados = resposta.json()
     except ValueError as exc:
         raise HTTPException(status_code=502, detail="A NVIDIA devolveu uma resposta que não é JSON.") from exc
-    ids = sorted(str(m.get("id")) for m in (dados.get("data") or []) if m.get("id"))
+    # Ids limpos: `nvidia_nim/` (convenção LiteLLM) fora, `fornecedor/modelo` intacto.
+    ids = sorted({limpar_nome_modelo(m.get("id")) for m in (dados.get("data") or []) if m.get("id")})
     if not ids:
         raise HTTPException(status_code=502, detail="A NVIDIA não devolveu nenhum modelo para esta chave.")
+    modelo_atual = limpar_nome_modelo(cfg["model"])
     return {
         "models": ids,
-        "modelo_atual": cfg["model"],
+        "modelo_atual": modelo_atual,
         "base_url": cfg["base_url"],
-        "modelo_atual_disponivel": cfg["model"] in ids,
+        "modelo_atual_disponivel": modelo_atual in ids,
     }
 
 
@@ -128,6 +138,12 @@ def migrar_supabase() -> dict:
 def salvar_configuracoes(payload: ConfiguracoesPatch, db: Session = Depends(get_db)) -> dict:
     data = payload.model_dump(exclude_none=True)
     for chave, valor in data.items():
+        if chave in CHAVES_MODELO and isinstance(valor, str):
+            # HOTFIX 0.5.03: grava só o id limpo — `nvidia_nim/` nunca entra
+            # no banco, então a UI e a próxima chamada já nascem corretas.
+            valor = limpar_nome_modelo(valor)
+            if not valor:
+                continue  # string vazia após limpeza não apaga o modelo atual
         if chave in SECRET_KEYS and isinstance(valor, str) and valor.strip() == "":
             continue  # vazio não apaga segredo existente (UX sem travas)
         if isinstance(valor, bool):
