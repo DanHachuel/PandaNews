@@ -45,6 +45,16 @@ Após cada versão, entregar sempre os comandos no formato:
 - CMD/MobaXterm: `npx.cmd --yes --prefer-online @danhachuel/pandanews@<VERSAO> install` e `npx.cmd --yes --prefer-online @danhachuel/pandanews@<VERSAO>`
 - Instalação normal: `npx --yes @danhachuel/pandanews@<VERSAO> install` e `npx --yes @danhachuel/pandanews@<VERSAO>`
 
+## Ciclo de vida das instâncias (permanente)
+
+O backend corre **destacado** e sobrevive ao fechamento do terminal — inclusive ao Ctrl+C. Consequência: um `pandanews start` pode encontrar uma instância anterior ainda viva e, se a reaproveitar, o utilizador fica com a UI nova a ser servida por um backend de versão velha.
+
+- **Lock global em `~/.pandanews/pandanews.pid`** (fora da pasta do pacote npm, que o `npx` apaga ao atualizar, e fora de `data/`). Regista o launcher **e** o backend: `pandanews kill` e o auto-kill precisam dos dois.
+- **Auto-kill no arranque**: `runStart` chama `matarInstanciasAntigas` **antes** de subir o backend, e depois arranca sempre fresco. Duas redes de segurança, porque o lock pode ficar obsoleto (medido: lock a apontar para o processo errado): os PIDs do lock **e** quem estiver dono de uma porta candidata (`pidDaPorta` via `netstat` no Windows). Nenhuma delas pode matar o próprio `process.pid`.
+- **Comando `pandanews kill`** (alias `stop`): lock global + portas, sempre por código, sempre silencioso (`windowsHide` + `stdio: 'ignore'`).
+
+**Runtime permanente (fix do EBUSY)** — o servidor **nunca** corre de dentro do cache do `npx`: todo o código de execução vive em `~/.pandanews/runtime` (cópia feita pelo `install`, que depois imprime "Instalação concluída! O cache do npx foi liberado." e sai sem iniciar o servidor). O `start` atualiza a cópia quando a versão muda e sobe backend + UI sempre a partir daí; o PID global vive em `~/.pandanews/pandanews.pid`. Um `start` antes de `install` num home novo prepara tudo sozinho; num checkout de desenvolvimento, a raiz do repositório serve de código.
+
 ## CHANGELOG obrigatório
 
 Sempre que existir qualquer alteração com push (código, docs, configuração, correção, publicação npm), escrever a entrada correspondente no CHANGELOG.md antes de publicar — nenhuma versão sai sem registo. Ao integrar trabalho de outra sessão sem entrada, documentá-la retroactivamente.

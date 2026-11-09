@@ -18,7 +18,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
 import net from 'node:net';
 import { join, extname } from 'node:path';
-import { resolveHome, runInstall, PKG_ROOT } from './install.js';
+import { instalarCodigoRuntime, resolveHome, runInstall, runtimeDir, PKG_ROOT } from './install.js';
 
 const API_PORT_BASE = Number(process.env.PANDANEWS_API_PORT || 8000);
 const UI_PORT_BASE = Number(process.env.PANDANEWS_UI_PORT || 4030);
@@ -150,6 +150,175 @@ function encerrarPorPid(pid, motivo) {
   console.log(motivo);
 }
 
+// ------------------------------------------------------------- lock global
+//
+// CICLO DE VIDA: o backend roda DESTACADO (detached + windowsHide), então
+// sobrevive ao terminal — e também sobrevive ao fim da própria sessão. Sem
+// um registo de quem está vivo, cada `pandanews start` empilhava outra
+// instância: o PID antigo nunca morria, a porta ficava presa e o utilizador
+// ficava com um backend de versão velha a servir a UI nova. Medido nesta
+// máquina: 2 uvicorns simultâneos (8000 e 8001) e o `data/backend.pid` a
+// apontar para o processo ERRADO.
+//
+// Por isso o lock vive em `~/.pandanews/pandanews.pid` — dentro do lar
+// estável do utilizador, FORA da pasta do pacote npm (que o npx apaga ao
+// atualizar) e fora de `data/`. Qualquer versão o encontra.
+const LOCK_FILE = 'pandanews.pid';
+
+function pidFilePath(home) {
+  return join(home, LOCK_FILE);
+}
+
+// Lê o lock global. Devolve null se não existir ou estiver corrompido —
+// lock corrompido NUNCA pode impedir o arranque.
+export function lerPidGlobal(home) {
+  const file = pidFilePath(home);
+  if (!existsSync(file)) return null;
+  try {
+    const dados = JSON.parse(readFileSync(file, 'utf8'));
+    if (typeof dados !== 'object' || dados === null) return null;
+    return {
+      launcher: Number.isInteger(dados.launcher) ? dados.launcher : null,
+      backend: Number.isInteger(dados.backend) ? dados.backend : null,
+      port: Number.isInteger(dados.port) ? dados.port : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function escreverPidGlobal(home, launcher, backend, port) {
+  try {
+    writeFileSync(
+      pidFilePath(home),
+      JSON.stringify({ launcher, backend, port, criado: new Date().toISOString() }, null, 2),
+    );
+  } catch {
+    /* melhor esforço — o lock nunca deve derrubar o arranque */
+  }
+}
+
+export function limparPidGlobal(home) {
+  try {
+    unlinkSync(pidFilePath(home));
+  } catch {
+    /* melhor esforço */
+  }
+}
+
+// ---------------------------------------------------- descobrir e matar
+
+// Descobre o PID dono de uma porta em LISTEN. No Windows via `netstat`
+// (spawn silencioso: windowsHide + stdio pipe — nunca uma janela); no Unix
+// devolve null, onde o lock global já basta.
+function pidDaPorta(port) {
+  if (process.platform !== 'win32') return null;
+  try {
+    const r = spawnSync('netstat', ['-ano'], {
+      windowsHide: true, // CREATE_NO_WINDOW
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'], // só precisamos do stdout
+    });
+    if (r.status !== 0 || !r.stdout) return null;
+    const alvo = `:${port}`;
+    for (const linha of r.stdout.toString().split(/\r?\n/)) {
+      if (!linha.includes(alvo) || !/LISTENING/i.test(linha)) continue;
+      const colunas = linha.trim().split(/\s+/);
+      const pid = Number(colunas[colunas.length - 1]);
+      if (Number.isInteger(pid) && pid > 0) return pid;
+    }
+  } catch {
+    /* netstat indisponível — seguimos sem o fallback */
+  }
+  return null;
+}
+
+// Mata uma árvore de processos por PID, sempre em silencioso.
+// `matarArvore` é a primitiva; `encerrarPorPid` é o wrapper com mensagem.
+export function matarArvore(pid) {
+  try {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], {
+        windowsHide: true, // CREATE_NO_WINDOW — sem tela preta
+        detached: true, // grupo de processos isolado
+        stdio: 'ignore', // taskkill não escreve no terminal
+      });
+    } else {
+      // grupo de processos: sinal negativo mata o processo e os filhos
+      process.kill(-pid, 'SIGKILL');
+    }
+  } catch {
+    /* processo já não existia */
+  }
+}
+
+// Mata TODAS as instâncias anteriores antes de subir uma nova.
+// Duas redes de segurança, porque o lock pode ficar obsoleto (foi o que
+// aconteceu: ficheiro a apontar para o processo errado):
+//   1. os PIDs registados no lock global (launcher + backend);
+//   2. qualquer processo ainda dono de uma porta candidata — o netstat
+//      apanha o zombie que o ficheiro perdeu.
+export async function matarInstanciasAntigas(home) {
+  const lock = lerPidGlobal(home);
+  let mortos = 0;
+
+  if (lock) {
+    for (const pid of [lock.launcher, lock.backend]) {
+      // NUNCA matar o próprio processo: dois launchers a arrancar ao mesmo
+      // tempo não podem suicidar-se mutuamente.
+      if (pid && pid !== process.pid) {
+        matarArvore(pid);
+        mortos += 1;
+      }
+    }
+  }
+
+  // varre as portas candidatas: o que sobrar a segurá-las é zombie
+  for (let port = API_PORT_BASE; port < API_PORT_BASE + PORT_MAX_TRIES; port++) {
+    const dono = pidDaPorta(port);
+    if (dono && dono !== process.pid) {
+      matarArvore(dono);
+      mortos += 1;
+    }
+  }
+
+  if (mortos > 0) {
+    console.log(`Encerrando instância anterior (${mortos} processo(s)) antes de iniciar...`);
+    // 1s para o SO libertar os ficheiros e as portas — sem isto o bind
+    // seguinte pode falhar com EADDRINUSE
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  limparPidGlobal(home);
+}
+
+// Encerramento explícito (`pandanews kill`): lock global + portas.
+export async function comandoKill(home) {
+  let mortos = 0;
+  const lock = lerPidGlobal(home);
+  if (lock) {
+    for (const pid of [lock.launcher, lock.backend]) {
+      if (pid && pid !== process.pid) {
+        matarArvore(pid);
+        mortos += 1;
+      }
+    }
+  }
+  for (let port = API_PORT_BASE; port < API_PORT_BASE + PORT_MAX_TRIES; port++) {
+    const dono = pidDaPorta(port);
+    if (dono && dono !== process.pid) {
+      matarArvore(dono);
+      mortos += 1;
+    }
+  }
+  limparPidGlobal(home);
+
+  if (mortos > 0) {
+    console.log(`PandaNews encerrado (${mortos} processo(s)).`);
+  } else {
+    console.log('Nenhuma instância do PandaNews em execução.');
+  }
+}
+
 // ---------------------------------------------------------- UI estática/proxy
 
 function placeholderPage() {
@@ -192,8 +361,12 @@ function proxyApi(req, res) {
 
 let uiServer = null;
 
+// Diretório de EXECUÇÃO do código: ~/.pandanews/runtime (runtime permanente,
+// fora do cache do npx). Só cai para PKG_ROOT em checkout de desenvolvimento.
+let codeDir = PKG_ROOT;
+
 function createUiServer() {
-  const distDir = join(PKG_ROOT, 'frontend', 'dist');
+  const distDir = join(codeDir, 'frontend', 'dist');
   return createServer((req, res) => {
     if (req.url.startsWith('/api') || req.url.startsWith('/legal')) {
       proxyApi(req, res);
@@ -253,13 +426,15 @@ function listenUi(port, attempt) {
 
 let backendPid = null; // PID do backend que ESTA sessão iniciou (null = reaproveitado)
 
-// Descobre um backend já em execução: arquivo backend.pid + porta respondendo.
+// Descobre um backend já em execução LENDO O LOCK GLOBAL
+// (~/.pandanews/pandanews.pid), não a pasta do pacote — que o npx apaga ao
+// atualizar. Devolve o PID registado e a porta que respondeu.
 async function backendJaRodando(home) {
-  const pidFile = join(home, 'data', 'backend.pid');
-  if (!existsSync(pidFile)) return null;
-  const pid = Number(readFileSync(pidFile, 'utf8').trim());
+  const lock = lerPidGlobal(home);
+  if (!lock) return null;
+  const pid = lock.backend;
   if (!Number.isInteger(pid) || pid <= 0) return null;
-  // procura o backend em qualquer porta candidata (a que gravou o pid)
+  // procura o backend em qualquer porta candidata (a que gravou o lock)
   for (let port = API_PORT_BASE; port < API_PORT_BASE + PORT_MAX_TRIES; port++) {
     if (await portaAberta(port)) return { pid, port };
   }
@@ -296,7 +471,7 @@ async function startBackend(home) {
     pythonBin(home),
     ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(port)],
     {
-      cwd: PKG_ROOT,
+      cwd: codeDir, // SEMPRE o runtime permanente — nunca o cache do npx (EBUSY)
       detached: true, // CREATE_NEW_PROCESS_GROUP no Windows — imune a Ctrl+C do console
       windowsHide: true, // sem janela de console fantasma
       stdio: ['ignore', logFd, logFd], // saída direto no arquivo (append) — não herda console
@@ -306,13 +481,10 @@ async function startBackend(home) {
   closeSync(logFd); // o filho tem sua própria cópia herdada
   python.unref(); // o launcher não morre com o backend e vice-versa
   backendPid = python.pid ?? null;
-  if (backendPid) {
-    try {
-      writeFileSync(join(home, 'data', 'backend.pid'), String(backendPid));
-    } catch {
-      /* melhor esforço */
-    }
-  }
+  // Lock GLOBAL (~/.pandanews/pandanews.pid) — fora da pasta do pacote, que
+  // o npx apaga ao atualizar. Guarda o launcher E o backend: `pandanews kill`
+  // e o auto-kill do arranque seguinte precisam dos dois.
+  escreverPidGlobal(home, process.pid, backendPid, port);
 
   if (await esperarBackend(port)) {
     console.log(`Backend no ar em http://127.0.0.1:${port} (sobrevive a Ctrl+C — encerrado apenas por este launcher).`);
@@ -402,47 +574,74 @@ export async function runStart() {
     return;
   }
 
-  // 1) reaproveita backend de sessão anterior (launcher morto por Ctrl+C),
-  //    eliminando o processo órfão perceptível na porta 8000
-  const existente = await backendJaRodando(home);
-  let backendOk;
-  if (existente && existente.port === Number(process.env.PANDANEWS_API_PORT || API_PORT_BASE)) {
-    console.log(`Backend já em execução (PID ${existente.pid}) — reaproveitando em http://127.0.0.1:${existente.port}.`);
-    activeBackendPort = existente.port;
-    backendOk = true;
-  } else {
-    if (existente) {
-      // backend rodando em outra porta: mantemos e deixamos nossa UI usá-la
-      console.log(`Backend já em execução (PID ${existente.pid}) na porta ${existente.port} — reaproveitando.`);
-      activeBackendPort = existente.port;
-      backendOk = true;
-    } else {
-      backendOk = await startBackend(home);
+  // 0) RUNTIME PERMANENTE (fix definitivo do EBUSY): o servidor NUNCA sobe
+  //    de dentro do cache do npx. A cópia em ~/.pandanews/runtime é criada
+  //    aqui se faltar (barato: sem download, sem pip) ou atualizada quando
+  //    a versão do pacote mudar. Em checkout de desenvolvimento, a raiz do
+  //    repositório serve de código.
+  const runtime = runtimeDir(home);
+  const versaoPacote = (() => {
+    try {
+      return JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')).version || '';
+    } catch {
+      return '';
     }
+  })();
+  const versaoRuntime = existsSync(join(runtime, '.version'))
+    ? readFileSync(join(runtime, '.version'), 'utf8').trim()
+    : '';
+  if (!existsSync(join(runtime, 'backend', 'app', 'main.py'))) {
+    console.log('Preparando o runtime permanente (~/.pandanews/runtime) — o servidor não roda mais do cache do npx...');
+    instalarCodigoRuntime(home);
+  } else if (versaoPacote && versaoRuntime !== versaoPacote) {
+    console.log(`Runtime defasado (${versaoRuntime || 'sem versão'} → ${versaoPacote}) — atualizando a cópia...`);
+    instalarCodigoRuntime(home);
+  }
+  if (existsSync(join(runtime, 'backend', 'app', 'main.py'))) {
+    codeDir = runtime;
+  } else if (existsSync(join(PKG_ROOT, 'backend', 'app', 'main.py'))) {
+    codeDir = PKG_ROOT; // desenvolvimento (checkout git)
+  } else {
+    console.error('Código do backend não encontrado. Execute o comando com `install` primeiro:');
+    console.error('  npx --yes @danhachuel/pandanews install');
+    process.exitCode = 1;
+    return;
   }
 
-  // 2) interface
+  // 1) MATA A INSTÂNCIA ANTERIOR antes de subir a nova.
+  //    O backend roda destacado e sobrevive ao terminal — sem isto, cada
+  //    `pandanews start` empilhava outro backend zombie (medido: 2 uvicorns
+  //    em 8000 e 8001, lock a apontar para o processo errado) e o utilizador
+  //    ficava com a UI nova a ser servida por um backend de versão velha.
+  //    Duas redes: PIDs do lock global + quem estiver dono das portas.
+  await matarInstanciasAntigas(home);
+
+  // 2) backend fresco — sempre. Nada a reaproveitar: matámos tudo acima.
+  const backendOk = await startBackend(home);
+
+  // 3) interface
   listenUi(UI_PORT_BASE, 1);
 
   // watchdog de saúde do backend (reergue em quedas silenciosas)
   iniciarWatchdog(home);
 
-  // 3) sinais: encerramento SEMPRE por código, nunca por propagação do terminal
-  process.on('SIGINT', () => {
+  // 4) sinais: encerramento SEMPRE por código, nunca por propagação do terminal
+  const encerrarTudo = () => {
     console.log('\nEncerrando PandaNews...');
     if (backendPid) {
       encerrarPorPid(backendPid, `Backend (PID ${backendPid}) encerrado — log: ${join(home, 'data', 'backend.log')}`);
-      try {
-        unlinkSync(join(home, 'data', 'backend.pid'));
-      } catch {
-        /* melhor esforço */
-      }
     } else {
-      console.log('Backend reaproveitado de sessão anterior — segue rodando em background.');
+      console.log('Nenhum backend foi iniciado por esta sessão.');
     }
+    limparPidGlobal(home); // o lock global morre com a sessão
+    process.exit(0);
+  };
+  process.on('SIGINT', encerrarTudo);
+  process.on('SIGTERM', () => {
+    if (backendPid) matarArvore(backendPid);
+    limparPidGlobal(home);
     process.exit(0);
   });
-  process.on('SIGTERM', () => process.exit(0));
 
   if (!backendOk) {
     process.exitCode = 1;

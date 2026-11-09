@@ -44,6 +44,19 @@ export function resolveHome() {
   return join(os.homedir(), '.pandanews');
 }
 
+// Runtime PERMANENTE do código — fora do cache do npx (fix definitivo do
+// EBUSY: o npx renomeia/limpa o cache e o Windows trava quando um processo
+// vivo segura arquivos dentro dele).
+export function runtimeDir(home) {
+  return join(home, 'runtime');
+}
+
+// PID global da instância em execução (launcher) — usado pelo start para
+// matar a versão antiga antes de subir a nova.
+export function pidFilePath(home) {
+  return join(home, 'pandanews.pid');
+}
+
 // Detecta plataforma e asset de python-build-standalone.
 export function detectPlatform() {
   const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
@@ -195,6 +208,30 @@ function installDeps(home) {
   if (pip.status !== 0) throw new Error('Falha ao instalar as dependências do backend.');
 }
 
+// Copia o CÓDIGO do pacote (cache do npx ou checkout git) para o runtime
+// permanente em ~/.pandanews/runtime. A partir daí o servidor roda de lá —
+// nunca de dentro do cache do npx (causa raiz do EBUSY no Windows).
+export function instalarCodigoRuntime(home) {
+  const destino = runtimeDir(home);
+  mkdirSync(destino, { recursive: true });
+  for (const item of ['backend', 'frontend/dist', 'scripts', 'bin']) {
+    const origem = join(PKG_ROOT, item);
+    if (existsSync(origem)) {
+      fse.copySync(origem, join(destino, item), {
+        filter: (src) => !/__pycache__[\\/]/.test(src) && !src.endsWith('.pyc'),
+      });
+    }
+  }
+  // marcador de versão — o start avisa quando o runtime está defasado
+  try {
+    const pkg = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf-8'));
+    writeFileSync(join(destino, '.version'), pkg.version || '');
+  } catch {
+    /* melhor esforço */
+  }
+  console.log(`Código instalado no runtime permanente: ${destino}`);
+}
+
 export async function runInstall({ skipPythonDeps = false } = {}) {
   const home = resolveHome();
   const platform = detectPlatform();
@@ -255,7 +292,8 @@ export async function runInstall({ skipPythonDeps = false } = {}) {
     writeFileSync(join(home, '.runtime', '.python-ready'), new Date().toISOString());
   }
 
+  instalarCodigoRuntime(home);
   writeFileSync(join(home, '.runtime', '.ready'), new Date().toISOString());
-  console.log('Instalação concluída.');
+  console.log('Instalação concluída! O cache do npx foi liberado.');
   return home;
 }

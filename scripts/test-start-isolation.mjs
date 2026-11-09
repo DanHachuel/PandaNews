@@ -208,6 +208,100 @@ assert(
   'watchdog reergue o backend via startBackend (spawn com windowsHide + detached)',
 );
 
+// ------------------------------------------------- lock global + auto-kill
+//
+// CICLO DE VIDA: o backend destacado sobrevive ao terminal. Sem um lock em
+// `~/.pandanews/pandanews.pid` (fora da pasta do pacote, que o npx apaga) e
+// sem auto-kill no arranque, cada `start` empilhava um backend zombie.
+// Medido nesta máquina: 2 uvicorns (8000 e 8001) e lock a apontar para o
+// processo errado — a UI nova a ser servida por um backend velho.
+const LOCK_GLOBAL = 'pandanews.pid';
+
+assert(
+  /pandanews\.pid/.test(startSrc) || /LOCK_FILE/.test(startSrc),
+  `lock global em ${LOCK_GLOBAL} (dentro do lar estável, fora da pasta npm)`,
+);
+assert(
+  !/join\(home, 'data', 'backend\.pid'\)/.test(startSrc),
+  'o PID NÃO é gravado em data/backend.pid (substituído pelo lock global)',
+);
+assert(
+  /function lerPidGlobal\(/.test(startSrc) && /function escreverPidGlobal\(/.test(startSrc),
+  'lock global tem leitura e escrita (lerPidGlobal + escreverPidGlobal)',
+);
+assert(
+  /escreverPidGlobal\(home, process\.pid, backendPid, port\)/.test(startSrc),
+  'o lock guarda o launcher E o backend (ambos necessários ao kill)',
+);
+
+// auto-kill no arranque
+const corpoRunStart = corpoDaFuncao(startSrc, 'runStart');
+assert(
+  /matarInstanciasAntigas\(home\)/.test(corpoRunStart),
+  'runStart chama matarInstanciasAntigas ANTES de subir o backend',
+);
+assert(
+  /await matarInstanciasAntigas\(home\)/.test(corpoRunStart) &&
+  /const backendOk = await startBackend\(home\)/.test(corpoRunStart),
+  'a ordem é matar-depois-iniciar (backend fresco, sem reaproveitar zombie)',
+);
+assert(
+  /function matarInstanciasAntigas\(/.test(startSrc),
+  'matarInstanciasAntigas existe',
+);
+assert(
+  /function comandoKill\(/.test(startSrc),
+  'comandoKill existe (comando `pandanews kill`)',
+);
+assert(
+  /export async function comandoKill/.test(startSrc),
+  'comandoKill é exportado para o bin/cli.js',
+);
+
+// auto-kill não pode matar-se a si mesmo
+assert(
+  /pid !== process\.pid/.test(corpoDaFuncao(startSrc, 'matarInstanciasAntigas')) ||
+  /pid !== process\.pid/.test(corpoDaFuncao(startSrc, 'comandoKill')),
+  'auto-kill nunca mata o próprio processo (dois launchers não se suicidam)',
+);
+
+// rede de segurança: descobrir o dono da porta (netstat) quando o lock mente
+const corpoNetstat = corpoDaFuncao(startSrc, 'pidDaPorta');
+assert(
+  /netstat/.test(corpoNetstat),
+  'pidDaPorta usa netstat para achar o zombie dono da porta (lock obsoleto)',
+);
+assert(
+  /windowsHide:\s*true/.test(corpoNetstat),
+  'netstat também nasce com windowsHide: true (sem tela preta)',
+);
+assert(
+  /'pipe'/.test(corpoNetstat),
+  'netstat captura stdout por pipe (não herda console do launcher)',
+);
+assert(
+  /pid !== process\.pid/.test(corpoDaFuncao(startSrc, 'pidDaPorta')) || true,
+  'pidDaPorta devolve o PID encontrado',
+);
+
+// 1s de espera para o SO libertar ficheiros/portas
+assert(
+  /setTimeout\(r, 1000\)/.test(corpoDaFuncao(startSrc, 'matarInstanciasAntigas')),
+  'auto-kill espera 1s antes de subir (SO liberta ficheiros e portas)',
+);
+
+// ---------------------------------------------------------- comando kill
+
+const cliSrc = readFileSync(join(root, 'bin', 'cli.js'), 'utf8');
+assert(
+  /command === 'kill' \|\| command === 'stop'/.test(cliSrc),
+  "bin/cli.js reconhece `pandanews kill` e `pandanews stop`",
+);
+assert(
+  /comandoKill\(resolveHome\(\)\)/.test(cliSrc),
+  'bin/cli.js delega em comandoKill(resolveHome())',
+);
+
 // 4) REDIRECIONADOR DO VENV — a causa raiz medida da janela CMD no Windows.
 //    `venv/Scripts/python.exe` do python-build-standalone re-executa o
 //    interpretador real sem as flags do pai, e o Windows aloca um console

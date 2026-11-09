@@ -2,6 +2,21 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.5.02 (2026-11-09)
+
+- **BUG MEDIDO antes de corrigir**: nesta máquina havia **2 backends uvicorn simultâneos** (porta 8000 e porta 8001) e o ficheiro de PID `data/backend.pid` apontava para o processo **errado** — sintomas exactos do efeito colateral do isolamento por `detached: true`: o backend sobrevive ao terminal, e cada `pandanews start` reaproveitava ou empilhava outra instância em vez de actualizar. Resultado para o utilizador: a UI nova a ser servida por um backend de versão velha
+- **Lock global `~/.pandanews/pandanews.pid`**: o PID deixa de ser gravado em `data/backend.pid` e passa a viver no lar estável do utilizador — **fora da pasta do pacote npm**, que o `npx` apaga ao atualizar. O lock guarda o launcher **e** o backend em JSON (`{launcher, backend, port}`), porque `kill` e o auto-kill precisam dos dois
+- **Auto-kill no arranque**: `runStart` chama `matarInstanciasAntigas(home)` **antes** de subir o backend e depois arranca sempre fresco — nada de reaproveitar zombie. **Duas redes de segurança**, porque o lock pode ficar obsoleto (foi o que aconteceu): os PIDs registados no lock **e** quem estiver dono de uma porta candidata. `pidDaPorta()` descobre esse dono via `netstat -ano` no Windows (spawn silencioso: `windowsHide` + `stdio: 'pipe'`), o único caminho que apanha o zombie que o ficheiro perdeu. Após matar, espera 1s para o SO libertar ficheiros e portas antes do bind seguinte
+- **Nenhum processo se mata a si mesmo**: `matarInstanciasAntigas` e `comandoKill` ignoram qualquer PID igual a `process.pid` — dois launchers a arrancar ao mesmo tempo não se suicidam mutuamente
+- **Comando `pandanews kill`** (alias `pandanews stop`) no `bin/cli.js`: lê o lock global, encerra backend e launcher por código, limpa o lock. Permite encerrar o app em background sem reiniciar a máquina
+- **`taskkill`/`netstat` do ciclo de vida silenciosos**: `windowsHide: true` + `detached: true` + `stdio: 'ignore'` no kill e `stdio: 'pipe'` no netstat — nenhuma janela de console em nenhum caminho
+- **FIX DO EBUSY (raiz, não workaround) — runtime permanente**: o servidor **nunca** corre de dentro do cache do `npx`. `install` copia o código para `~/.pandanews/runtime` (marcador `.version` incluído) e o `start` actualiza essa cópia quando a versão muda, subindo backend e UI sempre a partir daí (`cwd: codeDir`). Sem processos vivos dentro do cache, o `npx` pode renomeá-lo sem `EBUSY`. Em checkout de desenvolvimento, a raiz do repositório serve de código
+- **README**: documenta o `EBUSY` do `npx` no Windows, por que acontecia e que está corrigido — com `npm install -g` recomendado por evitar o download repetido
+- **AGENTS.md**: nova regra permanente "Ciclo de vida das instâncias" — lock global, auto-kill, comando `kill`, runtime permanente e a limitação do `npx`
+- **Teste de regressão ampliado**: 51 verificações (eram 34), cobrindo o lock global, a ordem matar-depois-iniciar, a protecção contra auto-kill, o `netstat` silencioso, a espera de 1s e o comando `kill` no CLI. Validação funcional: após `pandanews kill`, os 2 zombies desapareceram e as portas 8000/8001 ficaram livres
+- **E2E do ciclo de vida**: duas sessões do launcher em sequência — a segunda matou a primeira, sobrou exactamente um uvicorn novo, o lock foi actualizado para o backend novo, a porta 8001 nunca foi ocupada e `pandanews kill` limpou tudo no fim
+- Colisão de versão resolvida por renumeração (0.5.01 já publicado, regra do AGENTS.md)
+
 ## 0.4.12 (2026-11-08)
 
 - **Regra permanente documentada no AGENTS.md** — duas armadilhas que causaram os hotfixes 0.4.04 e 0.4.11, agora escritas para não se repetirem:
@@ -20,6 +35,14 @@ Todas as versões publicadas são registradas aqui antes do publish (regra em AG
 - **Verificação E2E com grupo de controle**: subindo o launcher real, o processo python ficou com **0 filhos** (antes: 1, o redirector). O hospedeiro de console que apareceu na medição foi atribuído ao próprio `Start-Job` do PowerShell — um job **vazio**, sem nenhum processo filho, já cria 1 `conhost`. Ou seja: nenhuma janela é atribuível ao PandaNews
 - **Causa do "backend morrendo" descartada**: todos os módulos importam limpo — `backend.app.main`, `wordpress_publisher`, `pipeline`, `scheduler`, `proc`. Nenhum `openai` no código, nenhuma dependência de terceiros faltando em `requirements.txt`. O `backend.log` confirma 35 inicializações completas; o backend atual está no ar desde 21:20
 - Colisão de versão resolvida por renumeração (0.4.10 já publicado, regra do AGENTS.md)
+
+## 0.5.02 (2026-11-09)
+
+- **Runtime permanente — fim do EBUSY (crítico)**: o servidor nunca mais roda de dentro do cache do `npx`. O `install` copia o código (`backend/`, `frontend/dist/`, `scripts/`, `bin/`) para `~/.pandanews/runtime/`, imprime "Instalação concluída! O cache do npx foi liberado." e **encerra sem iniciar o servidor**; o `start` atualiza a cópia quando a versão do pacote muda e sobe o backend (cwd no runtime) e a UI (dist do runtime) sempre a partir daí
+- **PID global** em `~/.pandanews/pandanews.pid` (lock JSON: launcher, backend e porta) — sobrevive à atualização do pacote
+- **Comando `pandanews kill`** (alias `stop`): encerra a instância anterior pelo lock + donos de porta, sempre por código e silencioso (`windowsHide` + `stdio: 'ignore'`)
+- AGENTS.md: regra **Runtime permanente (fix do EBUSY)** — servidor nunca corre do cache do npx
+- E2E: `install` copia e sai sem servidor; backend responde a partir da cópia do runtime (provado com marcador de versão injetado na cópia); `start` repetido mata a instância anterior (instância única); `kill` encerra tudo; zero janelas de console
 
 ## 0.5.01 (2026-11-08)
 
