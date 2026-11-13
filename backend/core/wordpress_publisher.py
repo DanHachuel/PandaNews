@@ -124,9 +124,26 @@ def contar_palavras(texto: str) -> int:
     return len((texto or "").split())
 
 
+def validar_conteudo(corpo: str) -> None:
+    """Bloqueia a publicação sem estrutura semântica (diretriz AdSense).
+
+    O AdSense recusa artigos sem hierarquia de cabeçalhos e sem parágrafos.
+    Sem pelo menos um ``<h2>`` e um ``<p>``, a notícia não é publicada e o
+    usuário é orientado a regenerar — evita post publicado e depois penalizado.
+    """
+    from backend.core.pipeline import conteudo_publicavel
+
+    estado = conteudo_publicavel(corpo)
+    if not estado["ok"]:
+        raise RuntimeError(
+            "Publicação bloqueada: " + estado["detalhe"]
+        )
+
+
 def publish_to_wordpress(db, noticia) -> dict:
     """Publica a notícia completa. Retorna {"post_id": int, "link": str}."""
     cred = _credenciais(db)
+    validar_conteudo(noticia.corpo)
     palavras = contar_palavras(noticia.corpo)
     if palavras < MINIMO_PALAVRAS_PUBLICACAO:
         raise RuntimeError(

@@ -79,6 +79,21 @@ class Configuracao(Base):
     valor: Mapped[str] = mapped_column(Text, default="")
 
 
+class Usuario(Base):
+    """Utilizador local do painel (login por e-mail + senha).
+
+    A senha nunca é guardada em texto plano: só o hash bcrypt. O utilizador
+    padrão é criado no primeiro arranque (ver ``init_db``).
+    """
+
+    __tablename__ = "usuarios"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    senha_hash: Mapped[str] = mapped_column(Text, default="")
+    criado_em: Mapped[datetime] = mapped_column(default=_now)
+
+
 class Log(Base):
     __tablename__ = "logs"
 
@@ -93,6 +108,33 @@ class Log(Base):
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _migrate()
+    _criar_usuario_padrao()
+
+
+# Utilizador local padrão — criado só no primeiro arranque. A senha inicial
+# vem do ambiente (PANDANEWS_SENHA_INICIAL) e, em falta dela, do default
+# documentado; o hash bcrypt é gerado aqui e a plaintecido nunca é guardada.
+USUARIO_PADRAO_EMAIL = "dan.hachuel@gmail.com"
+USUARIO_PADRAO_SENHA = "123456"
+
+
+def _criar_usuario_padrao() -> None:
+    import os
+
+    from sqlalchemy import select
+
+    import bcrypt
+
+    db = SessionLocal()
+    try:
+        if db.scalars(select(Usuario)).first() is not None:
+            return
+        senha_inicial = os.environ.get("PANDANEWS_SENHA_INICIAL") or USUARIO_PADRAO_SENHA
+        hash_ = bcrypt.hashpw(senha_inicial.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        db.add(Usuario(email=USUARIO_PADRAO_EMAIL, senha_hash=hash_))
+        db.commit()
+    finally:
+        db.close()
 
 
 def _migrate() -> None:

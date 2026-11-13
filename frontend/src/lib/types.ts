@@ -54,6 +54,7 @@ export interface Configuracoes {
   intervalo_padrao_horas: number;
   meta_diaria: number;
   supabase_detectado: boolean;
+  banco?: BancoStatus;
 }
 
 export interface Dashboard {
@@ -100,4 +101,14 @@ export interface WordPressStatus {
   url: string;
   user: string;
   password_configured: boolean;
+}
+
+/** Estado do banco activo — 'SQLite local' ou 'Supabase conectado' (Fase 6). */
+export interface BancoStatus {
+  backend: 'sqlite' | 'supabase';
+  rotulo: string;
+  detectado: boolean;
+  migrado: boolean;
+  detalhe: string;
+  backups: { nome: string; tamanho_bytes: number; criado_em: string }[];
 }

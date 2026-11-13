@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-TABELAS_ESPERADAS = ("blogs", "noticias", "configuracoes", "logs")
+TABELAS_ESPERADAS = ("blogs", "noticias", "configuracoes", "logs", "usuarios")
 
 SCHEMA_SQL = """-- PandaNews — schema para Supabase (execute no SQL Editor do painel)
 create table if not exists public.blogs (
@@ -51,6 +51,13 @@ create table if not exists public.logs (
   status text not null default '',
   mensagem text not null default '',
   created_at timestamptz not null default now()
+);
+
+create table if not exists public.usuarios (
+  id bigint primary key generated always as identity,
+  email text not null unique,
+  senha_hash text not null default '',
+  criado_em timestamptz not null default now()
 );
 """
 
@@ -112,9 +119,45 @@ def testar_conexao() -> dict:
     return {"ok": True, "detail": "Conexão ok e schema encontrado."}
 
 
+def criar_backup_sqlite() -> dict:
+    """Copia o banco local para data/backups/pandanews_AAAAMMDD_HHMMSS.db.
+
+    Corre ANTES de qualquer migração: se algo correr mal, o original está
+    intacto e datado. Em banco que não é SQLite, não há o que copiar.
+    """
+    import shutil
+    from datetime import datetime, timezone
+
+    from backend.core.config import DB_PATH, DB_URL
+
+    if not DB_URL.startswith("sqlite") or not DB_PATH.exists():
+        return {"ok": True, "criado": False, "detail": "Banco não-SQLite ou ainda vazio — nada a copiar."}
+
+    backups = DB_PATH.parent / "backups"
+    backups.mkdir(parents=True, exist_ok=True)
+    carimbo = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    destino = backups / f"pandanews_{carimbo}.db"
+    shutil.copy2(DB_PATH, destino)
+    return {
+        "ok": True,
+        "criado": True,
+        "backup": str(destino),
+        "nome": destino.name,
+        "tamanho_bytes": destino.stat().st_size,
+        "detail": f"Backup criado em {destino}.",
+    }
+
+
 def migrar_do_sqlite() -> dict:
-    """Copia blogs, notícias, configurações e logs do SQLite para o Supabase."""
-    from backend.core.database import Blog, Configuracao, Log, Noticia, SessionLocal
+    """Copia blogs, notícias, configurações, logs e usuários para o Supabase.
+
+    O backup do SQLite é feito ANTES de tocar no destino: a migração é
+    destrutiva do ponto de vista do utilizador (os dados passam a viver na
+    nuvem) e precisa de rede de segurança.
+    """
+    from backend.core.database import Blog, Configuracao, Log, Noticia, SessionLocal, Usuario
+
+    backup = criar_backup_sqlite()
 
     client = _client()
     faltando = [t for t in TABELAS_ESPERADAS if not _tabela_existe(client, t)]
@@ -189,6 +232,28 @@ def migrar_do_sqlite() -> dict:
                 ]
             ).execute()
         migrados["logs"] = len(logs)
+
+        usuarios = db.scalars(select(Usuario)).all()
+        if usuarios:
+            client.table("usuarios").upsert(
+                [
+                    {
+                        "id": u.id,
+                        "email": u.email,
+                        "senha_hash": u.senha_hash,
+                        "criado_em": u.criado_em.isoformat() if u.criado_em else None,
+                    }
+                    for u in usuarios
+                ]
+            ).execute()
+        migrados["usuarios"] = len(usuarios)
     finally:
         db.close()
-    return {"ok": True, "migrados": migrados}
+
+    resultado: dict = {"ok": True, "migrados": migrados, "backup": backup}
+    if backup.get("criado"):
+        resultado["detail"] = (
+            f"{sum(migrados.values())} registo(s) migrado(s). "
+            f"Backup do SQLite guardado em {backup['backup']}."
+        )
+    return resultado

@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.routers import automacao, blogs, configuracoes, dashboard, imagens, legal, llm, logs, noticias, wordpress
+from backend.app.routers import auth, automacao, blogs, configuracoes, dashboard, imagens, legal, llm, logs, noticias, wordpress
 from backend.core.database import SessionLocal, init_db
 from backend.core.llm_router import get_config
 
@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
     scheduler.parar()
 
 
-app = FastAPI(title="PandaNews API", version="0.5.3", lifespan=lifespan)
+app = FastAPI(title="PandaNews API", version="0.5.4", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,15 +40,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(blogs.router, prefix="/api/v1")
-app.include_router(configuracoes.router, prefix="/api/v1")
-app.include_router(dashboard.router, prefix="/api/v1")
-app.include_router(llm.router, prefix="/api/v1")
-app.include_router(noticias.router, prefix="/api/v1")
-app.include_router(imagens.router, prefix="/api/v1")
-app.include_router(automacao.router, prefix="/api/v1")
-app.include_router(logs.router, prefix="/api/v1")
-app.include_router(wordpress.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")  # login é público
+
+# Rotas de dados: exigem token JWT. A dependência vai no `dependencies` do
+# `include_router` (a forma suportada pelo FastAPI) — aplica-se a TODAS as
+# rotas do router, então nenhuma fica de fora por esquecimento.
+from fastapi import Depends as _Depends  # noqa: E402
+
+from backend.app.routers.auth import usuario_atual as _usuario_atual  # noqa: E402
+
+_PROTEGIDOS = (
+    blogs.router,
+    configuracoes.router,
+    dashboard.router,
+    llm.router,
+    noticias.router,
+    imagens.router,
+    automacao.router,
+    logs.router,
+    wordpress.router,
+)
+for _router in _PROTEGIDOS:
+    app.include_router(_router, prefix="/api/v1", dependencies=[_Depends(_usuario_atual)])
+
 app.include_router(legal.router)  # /legal/* na raiz (URLs de verificação)
 
 

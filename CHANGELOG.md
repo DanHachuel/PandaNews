@@ -2,6 +2,27 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.5.04 (2026-11-13)
+
+- **PACOTE 1 — Conteúdo pronto para AdSense (SEO)**
+  - `backend/core/pipeline.py`: prompt de redação reescrito para exigir **estrutura HTML semântica** — título ≤ 60 caracteres, corpo **mínimo de 1500 palavras** (teto de 4000 tokens), `<h2>` para seções principais, `<h3>` para subseções, `<p>` com 2–3 frases, `<ul>`/`<ol>` para listas, introdução em 2 parágrafos, conclusão explícita, `<h1>` proibido (o título já é o h1 da página) e **meta description ≤ 140 caracteres** devolvida no campo `resumo` (sem tags HTML)
+  - Novos helpers `_limpar_titulo` (corta em 60 caracteres na última palavra, sem pontuação pendurada) e `_limpar_meta_description`; `regenerar_noticia` também passou a usar o tecto de 4000 tokens
+  - **Bloqueio de publicação sem estrutura**: `conteudo_publicavel()` exige pelo menos um `<h2>` e um `<p>`; `wordpress_publisher.validar_conteudo()` corre antes do POST e levanta "Publicação bloqueada: …" explicando o que falta e orientando a regeneração. Notícia sem estrutura não chega ao WordPress
+- **PACOTE 2 — Login local (estilo ProdMaker)**
+  - Tabela `usuarios` (`id`, `email` único, `senha_hash`, `criado_em`) criada no `init_db()`; no primeiro arranque é semeado o utilizador padrão **`dan.hachuel@gmail.com` / `123456`** — a senha é guardada como **hash bcrypt**, nunca em texto plano (a inicial pode vir de `PANDANEWS_SENHA_INICIAL`)
+  - `backend/core/auth.py`: hash/verificação bcrypt e **JWT HS256** com `sub` + `exp` (24h), assinado por chave gerada em `~/.pandanews/data/jwt.secret` (permissão restrita, fora do código)
+  - Endpoints **públicos**: `POST /api/v1/auth/login` (mensagem genérica — não revela se o e-mail existe), `GET /api/v1/auth/status`. **Protegidos**: `GET /api/v1/auth/eu`, `POST /api/v1/auth/alterar-senha` (valida senha actual, mínimo 6 caracteres, recusa senha igual à anterior)
+  - **Todas as rotas de dados protegidas** (blogs, noticias, imagens, automacao, configuracoes, dashboard, llm, logs, wordpress) via `include_router(..., dependencies=[Depends(usuario_atual)])` — 401 sem token, expirado, forjado ou sem `Bearer`
+  - Frontend: página **`Login.tsx`** (cartão centralizado, logo PandaNews, botão de 44px), **`AuthGuard` no layout** do `App.tsx` (nenhuma rota escapa), token no `localStorage`, e o cliente `api.ts` passou a enviar `Authorization: Bearer` e a limpar a sessão + redireccionar em 401
+  - Configurações ganhou a secção **"Minha Conta"**: e-mail da sessão, troca de senha e botão **Sair**
+- **PACOTE 3 — Fase 6 (Supabase + UX)**
+  - `usuarios` entrou em `TABELAS_ESPERADAS`, no `SCHEMA_SQL` e na migração (antes migrava só 4 tabelas)
+  - **Backup automático antes de migrar**: `criar_backup_sqlite()` copia `pandanews.db` para `data/backups/pandanews_AAAAMMDD_HHMMSS.db`; `migrar_do_sqlite()` chama-o **antes** de tocar no destino e devolve o caminho no resultado
+  - `GET /api/v1/configuracoes` passou a expor `banco` — rótulo **"SQLite local"** ou **"Supabase conectado"**, credencial detectada, flag de migração e a **lista dos backups**; a UI mostra o estado, o projecto e os backups disponíveis
+  - **UX (lei de Fitts)**: `Button` subiu de `h-10` (40px) para **`h-11` (44px)** — alvo confortável para rato e toque
+- **Validação**: 148 verificações automáticas, 0 falhas — `test_seo_auth.py` (novo, 66: prompt, validação `<h2>`/`<p>`, título/meta, mock do LLM no payload WordPress, login, token, rotas protegidas, troca de senha, backup e status), `test_llm_fallback.py` (31), `npm test` (51). E2E com servidor real: **14/14** — login 200/401, rota protegida 401→200, status do banco, backup criado e listado, `/login` servido pelo fallback SPA
+- Nota: a exigência de login é **local e sem travas** — credenciais só são pedidas no momento da acção que precisa delas (regra do AGENTS.md)
+
 ## 0.5.03 (2026-11-09)
 
 - **HOTFIX — prefixo `nvidia_nim/` removido antes de chamar a API da NVIDIA**: os ids de modelo estavam a ser guardados/enviados com o prefixo de convenção do LiteLLM (`nvidia_nim/mistralai/mistral-large-4-1t-a52b`). Como o PandaNews faz HTTP directo para `https://integrate.api.nvidia.com/v1/chat/completions` — e não passa por um proxy — a NVIDIA não reconhecia o prefixo e devolvia erro de modelo não encontrado

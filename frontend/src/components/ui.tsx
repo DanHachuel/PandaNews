@@ -1,6 +1,7 @@
 import { ReactNode, useState } from 'react';
 
-// Lei de Fitts: botões primários grandes (h-10+) e destrutivos isolados.
+// Lei de Fitts: botões com altura mínima de 44px (h-11) — alvo confortável
+// para o ponteiro e para o toque.
 export function Button({
   children,
   onClick,
@@ -8,6 +9,7 @@ export function Button({
   type = 'button',
   disabled,
   title,
+  className = '',
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -15,9 +17,10 @@ export function Button({
   type?: 'button' | 'submit';
   disabled?: boolean;
   title?: string;
+  className?: string;
 }) {
   const base =
-    'inline-flex items-center justify-center gap-2 rounded-lg px-4 h-10 text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
+    'inline-flex items-center justify-center gap-2 rounded-lg px-4 h-11 text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
   const styles = {
     primary: 'bg-panda text-slate-900 hover:bg-panda-dark',
     secondary:
@@ -25,7 +28,13 @@ export function Button({
     danger: 'bg-red-600 text-white hover:bg-red-700',
   } as const;
   return (
-    <button type={type} className={`${base} ${styles[variant]}`} onClick={onClick} disabled={disabled} title={title}>
+    <button
+      type={type}
+      className={`${base} ${styles[variant]} ${className}`}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+    >
       {children}
     </button>
   );

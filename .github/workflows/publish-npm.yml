@@ -73,6 +73,11 @@ jobs:
           pip install --quiet --disable-pip-version-check httpx fastapi pydantic
           python backend/tests/test_llm_fallback.py
 
+      - name: Test SEO/AdSense + login local + Supabase backup
+        run: |
+          pip install --quiet --disable-pip-version-check httpx fastapi pydantic bcrypt PyJWT sqlalchemy
+          python backend/tests/test_seo_auth.py
+
       - name: Smoke test launcher install
         run: |
           TEST_ROOT="${RUNNER_TEMP}/pandanews-install-smoke"

@@ -82,6 +82,57 @@ def score_relevancia(item: dict, blog: Blog) -> float:
     return pontos
 
 
+TITULO_MAX = 60
+META_DESCRIPTION_MAX = 140
+
+
+def _limpar_titulo(titulo: str) -> str:
+    """Título chamativo e dentro do limite de 60 caracteres (SEO)."""
+    limpo = " ".join((titulo or "").split())
+    if len(limpo) <= TITULO_MAX:
+        return limpo
+    # corta na última palavra inteira antes do limite, sem reticências no meio
+    corte = limpo[:TITULO_MAX]
+    if " " in corte:
+        corte = corte[: corte.rfind(" ")]
+    return corte.rstrip(" ,;:.-")
+
+
+def _limpar_meta_description(resumo: str) -> str:
+    """Meta description sem tags HTML e dentro de 140 caracteres."""
+    limpo = re.sub(r"<[^>]+>", " ", resumo or "")
+    limpo = " ".join(limpo.split())
+    return limpo[:META_DESCRIPTION_MAX].rstrip(" ,;:.-")
+
+
+def conteudo_publicavel(corpo: str) -> dict:
+    """Valida a estrutura HTML semântica exigida pelo AdSense.
+
+    Regra de bloqueio: o corpo precisa ter pelo menos um ``<h2>`` e um ``<p>``.
+    Sem isso o post fica sem estrutura de artigo e é recusado na revisão do
+    AdSense — então a publicação é bloqueada e a regeneração é orientada.
+    """
+    texto = corpo or ""
+    tem_h2 = bool(re.search(r"<h2[\s>]", texto, re.IGNORECASE))
+    tem_p = bool(re.search(r"<p[\s>]", texto, re.IGNORECASE))
+    problemas: list[str] = []
+    if not tem_h2:
+        problemas.append("nenhuma seção <h2>")
+    if not tem_p:
+        problemas.append("nenhum parágrafo <p>")
+    return {
+        "ok": tem_h2 and tem_p,
+        "problemas": problemas,
+        "detalhe": (
+            "Conteúdo sem estrutura semântica suficiente para publicar: "
+            + "; ".join(problemas)
+            + ". Regenere a notícia (o prompt exige <h2>, <p> e conclusão)."
+            if problemas
+            else ""
+        ),
+    }
+
+
 def _prompt_redacao(blog: Blog, item: dict) -> str:
     estilo = (blog.estilo_editorial or "").strip() or "jornalismo claro e direto em português do Brasil"
     return (
@@ -91,12 +142,24 @@ def _prompt_redacao(blog: Blog, item: dict) -> str:
         f"Estilo editorial: {estilo}\n"
         f"Fonte: \"{item['titulo']}\"\n"
         f"Resumo da fonte: {item['resumo']}\n"
-        "Regras: reescreva com palavras próprias; não invente fatos que não estejam "
-        "na fonte; 3 a 5 parágrafos.\n"
-        "DIRETRIZ RÍGIDA (AdSense): o texto final deve ter no mínimo 1500 palavras. "
-        "Expanda o contexto, traga implicações e detalhes para criar um artigo profundo "
-        "e otimizado para SEO. Nunca gere textos com menos de 1000 palavras.\n"
-        'Responda SOMENTE com JSON válido no formato: {"titulo": "...", "resumo": "...", "corpo": "..."}'
+        "\n"
+        "ESTRUTURA OBRIGATÓRIA (diretriz Google AdSense — artigo profundo e semântico):\n"
+        "- Título: chamativo, com NO MÁXIMO 60 caracteres.\n"
+        "- Corpo: NO MÍNIMO 1500 palavras. Expanda contexto, implicações e detalhes. "
+        "Nunca gere menos de 1000 palavras.\n"
+        "- Use tags HTML semânticas no corpo:\n"
+        "    <h2> para as seções principais (pelo menos dois);\n"
+        "    <h3> para subseções, quando fizer sentido;\n"
+        "    <p> para cada parágrafo, com 2 a 3 frases cada;\n"
+        "    <ul> ou <ol> para listas, quando couber.\n"
+        "- Introdução: 2 parágrafos.\n"
+        "- Conclusão: 1 parágrafo explícito, fechando o artigo.\n"
+        "- NÃO use <h1>: o título já é o <h1> da página.\n"
+        "- NÃO invente fatos que não estejam na fonte.\n"
+        "\n"
+        "Resposta: SOMENTE JSON válido, sem texto fora dele, no formato\n"
+        '  {"titulo": "...", "resumo": "...", "corpo": "<h2>...</h2><p>...</p>"}\n'
+        "O campo \"resumo\" é a META DESCRIPTION: até 140 caracteres, sem tags HTML.\n"
     )
 
 
@@ -151,9 +214,16 @@ def gerar_noticia(blog_id: int) -> Noticia | None:
             _log(db, blog.id, "redacao", "erro", f"Falha na redação: {exc}")
             return None
         dados = _parse_resposta_llm(resposta)
-        titulo = str(dados.get("titulo") or item["titulo"]).strip()
-        resumo = str(dados.get("resumo") or _limpar(item["resumo"], 240)).strip()
+        titulo = _limpar_titulo(str(dados.get("titulo") or item["titulo"]))
+        resumo = _limpar_meta_description(str(dados.get("resumo") or dados.get("meta_description") or item["resumo"]))
         corpo = str(dados.get("corpo") or resposta).strip()
+
+        # Estrutura semântica (diretriz AdSense): bloqueia conteúdo raso
+        validacao = conteudo_publicavel(corpo)
+        if not validacao["ok"]:
+            _log(db, blog.id, "redacao", "erro", validacao["detalhe"])
+            return None
+
         _log(db, blog.id, "redacao", "sucesso", f"Notícia redigida via {provedor}: {titulo}")
 
         noticia = Noticia(
@@ -202,13 +272,23 @@ def regenerar_noticia(noticia_id: int) -> Noticia | None:
             blog,
             {"titulo": noticia.fonte_titulo, "resumo": noticia.resumo or noticia.corpo[:300], "link": noticia.fonte_url},
         )
-        resposta, provedor = llm_router.gerar_texto(db, prompt, max_tokens=1600)
+        resposta, provedor = llm_router.gerar_texto(db, prompt, max_tokens=4000)
         dados = _parse_resposta_llm(resposta)
+
+        titulo = _limpar_titulo(str(dados.get("titulo") or noticia.fonte_titulo or ""))
+        resumo = _limpar_meta_description(str(dados.get("resumo") or dados.get("meta_description") or noticia.resumo or ""))
+        corpo = str(dados.get("corpo") or resposta).strip()
+
+        validacao = conteudo_publicavel(corpo)
+        if not validacao["ok"]:
+            _log(db, blog.id, "redacao", "erro", validacao["detalhe"])
+            return noticia
+
         if dados.get("titulo"):
-            noticia.titulo = str(dados["titulo"]).strip()
-        if dados.get("resumo"):
-            noticia.resumo = str(dados["resumo"]).strip()
-        noticia.corpo = str(dados.get("corpo") or resposta).strip()
+            noticia.titulo = titulo
+        if dados.get("resumo") or dados.get("meta_description"):
+            noticia.resumo = resumo
+        noticia.corpo = corpo
         noticia.llm_provider = provedor
         db.commit()
         db.refresh(noticia)

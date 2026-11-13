@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiSend } from '../lib/api';
 import type { Configuracoes, WordPressStatus } from '../lib/types';
 import { Badge, Button, Card, Expander, Field, inputClass } from '../components/ui';
+import { useAuth } from '../lib/auth';
 
 type TestResult = { ok: boolean; detail?: string; latency_ms?: number; model?: string; degraded?: boolean; status?: number; endpoint?: string };
 
@@ -41,6 +42,26 @@ export function Configuracoes() {
   const [testes, setTestes] = useState<Record<string, TestResult>>({});
   const [msg, setMsg] = useState('');
   const [schemaSql, setSchemaSql] = useState('');
+
+  // Minha Conta (login local desde 0.5.04)
+  const emailAtual = useAuth((s) => s.email);
+  const sair = useAuth((s) => s.sair);
+  const [senhaAtual, setSenhaAtual] = useState('');
+  const [senhaNova, setSenhaNova] = useState('');
+  const [msgSenha, setMsgSenha] = useState('');
+  const trocarSenha = useMutation({
+    mutationFn: () =>
+      apiSend<{ ok: boolean; detail?: string }>('/auth/alterar-senha', 'POST', {
+        senha_atual: senhaAtual,
+        senha_nova: senhaNova,
+      }),
+    onSuccess: (dados) => {
+      setMsgSenha(dados.detail || 'Senha alterada.');
+      setSenhaAtual('');
+      setSenhaNova('');
+    },
+    onError: (exc: Error) => setMsgSenha(exc.message),
+  });
 
   // Integração WordPress (estado vem do endpoint próprio — sem depender do GET geral)
   const { data: wpStatus } = useQuery({
@@ -309,18 +330,37 @@ export function Configuracoes() {
         <Expander title="Banco de dados (SQLite local → Supabase opcional)">
           <div className="mb-4 space-y-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="green">Backend ativo: SQLite local</Badge>
+              <Badge tone={config?.banco?.backend === 'supabase' ? 'blue' : 'green'}>
+                Backend ativo: {config?.banco?.rotulo ?? 'SQLite local'}
+              </Badge>
               {config?.supabase_detectado ? (
                 <Badge tone="blue">credenciais Supabase detectadas</Badge>
               ) : (
                 <Badge>credenciais Supabase não configuradas</Badge>
               )}
+              {config?.banco?.migrado && <Badge tone="green">migração concluída</Badge>}
             </div>
+            {config?.banco?.detalhe && <p className="text-xs text-slate-500">{config.banco.detalhe}</p>}
             <p className="text-xs text-slate-500">
               100% local por padrão. O Supabase é opcional: informe o projeto + <code>service_role_key</code>, teste a
-              conexão, crie as tabelas com o schema SQL e migre seus dados quando quiser. O app continua funcionando
-              localmente de forma independente.
+              conexão, crie as tabelas com o schema SQL e migre seus dados quando quiser. Antes de migrar, um{' '}
+              <strong>backup automático</strong> do SQLite é guardado em <code>data/backups/</code>. O app continua
+              funcionando localmente de forma independente.
             </p>
+            {(config?.banco?.backups?.length ?? 0) > 0 && (
+              <div className="text-xs text-slate-500">
+                <div className="mb-1 font-semibold text-slate-600 dark:text-slate-300">
+                  Backups do SQLite ({config?.banco?.backups?.length})
+                </div>
+                <ul className="space-y-0.5">
+                  {config?.banco?.backups?.slice(0, 5).map((b) => (
+                    <li key={b.nome} className="font-mono">
+                      {b.nome} · {(b.tamanho_bytes / 1024).toFixed(0)} kB
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" onClick={() => testarSupabase.mutate()} disabled={testarSupabase.isPending}>
                 Testar conexão
@@ -440,6 +480,45 @@ export function Configuracoes() {
           </div>
           {testarWp.data && !testarWp.data.ok && <p className="mt-3 text-xs text-red-400">{testarWp.data.detail}</p>}
           {testarWp.data?.ok && <p className="mt-3 text-xs text-panda">{testarWp.data.detail}</p>}
+        </Expander>
+
+        {/* Minha Conta — troca de senha e logout (login local desde 0.5.04) */}
+        <Expander title="Minha Conta" defaultOpen>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <Badge tone="blue">{emailAtual ?? 'sessão local'}</Badge>
+            <Button variant="danger" onClick={sair}>Sair</Button>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Senha atual">
+              <input
+                type="password"
+                className={inputClass}
+                value={senhaAtual}
+                onChange={(e) => setSenhaAtual(e.target.value)}
+                autoComplete="current-password"
+              />
+            </Field>
+            <Field label="Nova senha" hint="Mínimo de 6 caracteres">
+              <input
+                type="password"
+                className={inputClass}
+                value={senhaNova}
+                onChange={(e) => setSenhaNova(e.target.value)}
+                autoComplete="new-password"
+              />
+            </Field>
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <Button
+              onClick={() => trocarSenha.mutate()}
+              disabled={trocarSenha.isPending || !senhaAtual || senhaNova.length < 6}
+            >
+              {trocarSenha.isPending ? 'Alterando…' : 'Alterar senha'}
+            </Button>
+            {msgSenha && (
+              <span className={`text-sm ${trocarSenha.isError ? 'text-red-400' : 'text-panda'}`}>{msgSenha}</span>
+            )}
+          </div>
         </Expander>
       </div>
 
