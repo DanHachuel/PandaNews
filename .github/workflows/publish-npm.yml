@@ -70,7 +70,7 @@ jobs:
 
       - name: Test LLM fallback (NVIDIA 410/404 -> Gemini) + prefixo nvidia_nim/ fora do payload
         run: |
-          pip install --quiet --disable-pip-version-check httpx fastapi pydantic
+          pip install --quiet --disable-pip-version-check httpx fastapi pydantic sqlalchemy
           python backend/tests/test_llm_fallback.py
 
       - name: Test SEO/AdSense + login local + Supabase backup

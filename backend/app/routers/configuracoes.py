@@ -47,13 +47,32 @@ def _listar_backups() -> list[dict]:
 
 
 def _status_banco(db: Session) -> dict:
-    """Estado do banco activo para a UI — 'SQLite local' ou 'Supabase conectado'."""
-    from backend.core import supabase_db
+    """Estado do banco activo para a UI — 'SQLite local' ou 'Supabase conectado'.
 
-    cred = supabase_db.obter_credenciais()
-    detectado = bool(cred["url"] and cred["key"])
-    em_uso = get_config(db, "db_backend", "supabase" if cred["url"] and cred["key"] else "sqlite")
+    Nunca levanta: uma falha ao inspeccionar o Supabase (dependência ausente,
+    projecto alcançável mas sem schema) degrada para "SQLite local" com a nota
+    do problema. A página de Configurações não pode ficar em branco por causa
+    de um serviço opcional.
+    """
+    backups = _listar_backups()
     migrado = get_config(db, "supabase_migrado", "") == "true"
+
+    try:
+        from backend.core import supabase_db
+
+        cred = supabase_db.obter_credenciais()
+    except Exception as exc:  # noqa: BLE001 — Supabase é opcional
+        return {
+            "backend": "sqlite",
+            "rotulo": "SQLite local",
+            "detectado": False,
+            "migrado": migrado,
+            "backups": backups,
+            "detalhe": f"Dados em data/pandanews.db nesta máquina (Supabase indisponível: {exc})",
+        }
+
+    detectado = bool(cred["url"] and cred["key"])
+    em_uso = get_config(db, "db_backend", "supabase" if detectado else "sqlite")
 
     if em_uso == "supabase" and detectado:
         return {
@@ -61,7 +80,7 @@ def _status_banco(db: Session) -> dict:
             "rotulo": "Supabase conectado",
             "detectado": True,
             "migrado": migrado,
-            "backups": _listar_backups(),
+            "backups": backups,
             "detalhe": f"Projeto: {cred['url'].split('//')[-1].split('.')[0]} (credencial em: {cred['origem']})",
         }
     return {
@@ -69,7 +88,7 @@ def _status_banco(db: Session) -> dict:
         "rotulo": "SQLite local",
         "detectado": detectado,
         "migrado": migrado,
-        "backups": _listar_backups(),
+        "backups": backups,
         "detalhe": "Dados em data/pandanews.db nesta máquina" + (
             " (credenciais Supabase disponíveis para migrar)" if detectado else ""
         ),
