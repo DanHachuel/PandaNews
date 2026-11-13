@@ -70,12 +70,12 @@ jobs:
 
       - name: Test LLM fallback (NVIDIA 410/404 -> Gemini) + prefixo nvidia_nim/ fora do payload
         run: |
-          pip install --quiet --disable-pip-version-check httpx fastapi pydantic sqlalchemy
+          pip install --quiet --disable-pip-version-check -r backend/requirements.txt
           python backend/tests/test_llm_fallback.py
 
       - name: Test SEO/AdSense + login local + Supabase backup
         run: |
-          pip install --quiet --disable-pip-version-check httpx fastapi pydantic bcrypt PyJWT sqlalchemy
+          pip install --quiet --disable-pip-version-check -r backend/requirements.txt
           python backend/tests/test_seo_auth.py
 
       - name: Smoke test launcher install
