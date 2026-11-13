@@ -2,6 +2,16 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.5.05 (2026-11-13)
+
+- **Botão "Sair" no rodapé do Sidebar** (paridade com o LeadMaster): a barra lateral passou a ter um rodapé fixo — `sticky top-0 h-screen` na `<aside>` e `mt-auto` + `border-t` no bloco final — onde ficam a linha "100% local · SQLite" e o botão **Sair**. A navegação (`flex-1`) empurra o rodapé para o fundo, por isso o botão fica sempre colado à base, em qualquer altura de ecrã
+- **Acção**: `handleLogout` chama o `sair()` do store de autenticação (limpa o token **e** o e-mail do `localStorage`) e navega para `/login` com `replace: true` — a navegação explícita é imediata e não depende de um re-render intermédio do `AuthGuard`
+- **Ícone**: SVG inline de logout (o mesmo desenho do `LogOut` do lucide, 20px). **Não foi adicionada a dependência `lucide-react`** — a navegação desta sidebar usa emoji e uma dependência nova só para um ícone não se justifica
+- **Estilo**: paleta do PandaNews (`slate`/`panda`), não a do LeadMaster. O hover segue os itens de navegação, mas em vermelho (`hover:bg-red-50 hover:text-red-600`, e o equivalente no tema escuro) para sinalizar que a acção é destrutiva da sessão — mantendo o mesmo espaçamento e cantos arredondados dos links acima
+- **Lei de Fitts**: o botão tem 44px de altura (`py-3`), como os botões de acção do resto da UI
+- **Verificado no browser real**: medição do DOM computado confirma 44px de altura, rodapé colado ao fundo da `<aside>` de 700px, ícone renderizado a 20px e borderline de 1px. Fluxo completo testado: login → botão visível no rodapé → clique → token removido do `localStorage` → rota `/login` → sidebar desaparecido → rota protegida (`/blogs`) redirecciona para `/login`
+- 150 verificações automáticas continuam verdes (`test_seo_auth.py` 66, `test_llm_fallback.py` 33, `npm test` 51) e o build do frontend passa sem erros de TypeScript
+
 ## 0.5.04 (2026-11-13)
 
 - **PACOTE 1 — Conteúdo pronto para AdSense (SEO)**

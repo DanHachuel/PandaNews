@@ -1,5 +1,6 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { PandaLogo } from './PandaLogo';
+import { useAuth } from '../lib/auth';
 
 // Lei de Hick: no máximo 7 itens de navegação, consistentes (Lei de Jakob).
 const itens = [
@@ -12,9 +13,42 @@ const itens = [
   { to: '/logs', label: 'Logs', icon: '📜' },
 ];
 
-export function Sidebar() {
+// Ícone de logout inline (mesmo desenho do LogOut do lucide) — evita uma
+// dependência nova só para um ícone, já que a navegação usa emoji.
+function LogOutIcon() {
   return (
-    <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:flex dark:border-slate-800 dark:bg-card">
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  );
+}
+
+export function Sidebar() {
+  const navegar = useNavigate();
+  const sair = useAuth((s) => s.sair);
+
+  function handleLogout() {
+    // sair() limpa o token do localStorage e o estado; o AuthGuard passaria a
+    // redireccionar sozinho, mas a navegação explícita é imediata e não
+    // depende de um re-render intermédio.
+    sair();
+    navegar('/login', { replace: true });
+  }
+
+  return (
+    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:flex dark:border-slate-800 dark:bg-card">
       <div className="flex items-center gap-2.5 px-5 py-5">
         <PandaLogo />
         <div>
@@ -47,7 +81,19 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <div className="px-5 py-4 text-[11px] text-slate-400 dark:text-slate-600">100% local · SQLite</div>
+
+      {/* Rodapé fixo: info + Sair. `mt-auto` cola no fundo da coluna flex. */}
+      <div className="mt-auto border-t border-slate-200 px-3 py-3 dark:border-slate-800">
+        <div className="px-2 pb-2 text-[11px] text-slate-400 dark:text-slate-600">100% local · SQLite</div>
+        <button
+          onClick={handleLogout}
+          title="Encerrar a sessão e voltar ao login"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:text-slate-400 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+        >
+          <LogOutIcon />
+          Sair
+        </button>
+      </div>
     </aside>
   );
 }
