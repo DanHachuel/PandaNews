@@ -2,6 +2,22 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.5.06 (2026-11-13)
+
+- **Docs: Adicionadas Skills de prevenção de regressões (LLM, Windows, SEO, WordPress)** — nova pasta `.agents/skills/` com 7 documentos que serão lidos obrigatoriamente antes de cada tarefa, cada um com o gatilho de leitura no topo:
+  - `windows-runtime-guard` — runtime permanente em `~/.pandanews/runtime` (fim do EBUSY), spawn silencioso (`windowsHide` + `detached` + `stdio: 'ignore'`), helper Python `backend/core/proc.py` (`CREATE_NO_WINDOW`), armadilha do redirector do venv, watchdog com teto e auto-kill pelo lock global
+  - `llm-resilience-guard` — fallback implacável (`except Exception` → próximo provedor), sanitização do prefixo `nvidia_nim/` antes do POST, proibição de dependência fantasma (o caso `openai`), "Testar Conexão" por inferência real
+  - `wordpress-seo-guard` — HTML semântico obrigatório (`<h2>`/`<h3>`/`<p>`), mínimo de 1500 palavras no prompt e bloqueio duro abaixo de 300, upload de imagem em 2 etapas (`media` → `featured_media`), Basic Auth com Application Password
+  - `parallel-session-guard` — `git fetch` + rebase antes de commitar, parar e reportar ao ver trabalho de outra sessão, colisão de versão resolve por renumeração (a versão publicada no `latest` vence)
+  - `systemic-view-guard` — mapa de dependências (`frontend/` → `routers/` → `core/` → launcher → `~/.pandanews/runtime`) e a regra de actualizar todos os chamadores ao mudar uma assinatura
+  - `surgical-scope-guard` — regra do menor arquivo possível, proibição de refatoração estética e lista de arquivos sensíveis (`package.json`, `requirements.txt`, `scripts/start.js`, `scripts/install.js`, workflow de publish)
+  - `contract-test-guard` — testar o payload HTTP real e não o mock, rotas protegidas sem/com token, e a tabela regressão→teste que a prende (com verificação por mutação)
+- **AGENTS.md**: novo bloco **"⚠️ ATENÇÃO AGENTE"** no topo, ordenando a leitura de `.agents/skills/*/SKILL.md` antes de qualquer tarefa, com a tabela de gatilhos
+- **Testes**: stubs dedicados `backend/tests/test_windows_keepalive.py` e `backend/tests/test_wordpress_upload.py` (documentam o objectivo e correm verdes sem pytest; a cobertura equivalente vive em `scripts/test-start-isolation.mjs` e `backend/tests/test_seo_auth.py`)
+- **Sem alteração de código funcional do app** — apenas documentação, testes-stub e o bump de versão
+- `.agents/` entra na lista `files` do `package.json`: as skills passam a ir no tarball do npm junto com o resto da documentação
+- Colisão de versão resolvida por renumeração: 0.5.05 já estava publicada no `latest` por outra sessão (regra do AGENTS.md), por isso esta release é 0.5.06
+
 ## 0.5.05 (2026-11-13)
 
 - **Botão "Sair" no rodapé do Sidebar** (paridade com o LeadMaster): a barra lateral passou a ter um rodapé fixo — `sticky top-0 h-screen` na `<aside>` e `mt-auto` + `border-t` no bloco final — onde ficam a linha "100% local · SQLite" e o botão **Sair**. A navegação (`flex-1`) empurra o rodapé para o fundo, por isso o botão fica sempre colado à base, em qualquer altura de ecrã

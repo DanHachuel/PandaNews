@@ -2,6 +2,22 @@
 
 Regras permanentes do repositório **PandaNews** (pacote npm `@danhachuel/pandanews`, binário `pandanews`). Toda a sessão de agente que trabalhe neste projeto deve segui-las integralmente.
 
+## ⚠️ ATENÇÃO AGENTE
+
+**Antes de iniciar qualquer tarefa, leia todos os arquivos em `.agents/skills/*/SKILL.md`.** Eles contêm regras críticas para evitar regressões fatais (EBUSY, janelas CMD, quebra de API, AdSense). Siga-as à risca.
+
+Cada skill declara no topo quando deve ser lida. Resumo:
+
+| Skill | Leia antes de… |
+|---|---|
+| `windows-runtime-guard` | tocar em `scripts/`, `bin/cli.js`, launcher ou qualquer código que lance subprocesso |
+| `llm-resilience-guard` | tocar em `backend/core/llm_router.py`, no pipeline de geração, nos provedores LLM ou no teste de conexão |
+| `wordpress-seo-guard` | tocar no prompt do LLM, no pipeline, no publicador WordPress ou no endpoint de publicação |
+| `parallel-session-guard` | commitar, rebasear ou publicar qualquer versão do npm |
+| `systemic-view-guard` | mudar assinatura de função, endpoint, schema do banco ou ciclo de vida do processo |
+| `surgical-scope-guard` | começar qualquer bugfix ou feature — impede refatoração não solicitada |
+| `contract-test-guard` | escrever ou alterar qualquer teste do projeto |
+
 ## Versionamento NPM
 
 O PandaNews usa a convenção visual de lançamento MAJOR.MINOR.PATCH, com dois dígitos no PATCH. Ao atingir o patch 99, a próxima publicação deve incrementar o componente MINOR e reiniciar o PATCH em 00; quando o MINOR está em 9, é o MAJOR que avança e MINOR/PATCH reiniciam em 00.
