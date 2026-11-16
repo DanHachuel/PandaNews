@@ -510,6 +510,43 @@ async function testeAncoraLauncher() {
   }
 }
 
+// ------------------------------------- HOTFIX 0.6.01: rotina de encerramento
+//
+// `encerrarSessao` é o alvo do Ctrl+C. Aqui ela é exercitada de verdade (com a
+// saída injectable) num lar temporário: cria o lock global, chama a rotina e
+// confirma que o lock foi limpo — um lock obsoleto faria o próximo `start`
+// matar o processo errado (medido em 0.5.02: lock a apontar para o errado).
+
+async function testeEncerrarSessao() {
+  const os = await import('node:os');
+  const { mkdtempSync, existsSync, rmSync } = await import('node:fs');
+  const mod = await import(`file://${join(root, 'scripts', 'start.js').replace(/\\/g, '/')}`);
+
+  const home = mkdtempSync(join(os.tmpdir(), 'pandanews-sessao-'));
+  try {
+    mod.escreverPidGlobal(home, 1111, 2222, 8000);
+    assert(
+      existsSync(join(home, 'pandanews.pid')),
+      'encerrarSessao: lock global criado para o teste',
+    );
+
+    let saidas = 0;
+    mod.encerrarSessao(home, () => {
+      saidas += 1;
+    });
+    assert(
+      saidas === 1,
+      'encerrarSessao chama a saída injectable (o Ctrl+C segue para o exit)',
+    );
+    assert(
+      !existsSync(join(home, 'pandanews.pid')),
+      'encerrarSessao limpa o lock global ao encerrar (sem lock obsoleto)',
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 // -------------------------------------------------------------- veredicto
 
 function veredicto() {
@@ -521,4 +558,6 @@ function veredicto() {
   process.exit(1);
 }
 
-testeAncoraLauncher().then(veredicto);
+testeAncoraLauncher()
+  .then(testeEncerrarSessao)
+  .then(veredicto);
