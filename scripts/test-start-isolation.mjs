@@ -14,6 +14,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -382,11 +383,142 @@ assert(
   'nenhuma chamada direta a subprocess/os.system no backend (todas via helper silencioso)',
 );
 
+// ------------------------------------------- HOTFIX 0.6.01: launcher de pé
+//
+// SINTOMA: depois de subir o backend e a UI, o launcher encerrava a si mesmo
+// e devolvia o prompt do PowerShell com os servidores ainda no ar, órfãos.
+//
+// CAUSA: o backend nasce `detached: true` + `unref()` e o watchdog também é
+// `unref()` — de propósito, nenhum dos dois dita a morte do outro. Sobrava
+// como ÚNICA âncora do Event Loop a socket de listen da UI. No momento em que
+// essa âncora sai, o Node fica sem handles ativos e encerra a si mesmo: o
+// prompt volta e o utilizador fica com um backend a servir uma UI morta.
+//
+// CORREÇÃO: `manterLauncherVivo()` (chamado no fim do runStart) ancora o loop
+// em `process.stdin.resume()` — que também mantém o terminal e o Ctrl+C — e
+// num timer não-unref'd, que segura o processo mesmo quando stdin é um pipe
+// que chega a EOF. Ctrl+C passa a cair em `encerrarSessao`, que mata o
+// backend pela árvore (/PID /T), fecha a UI e limpa o lock global.
+
+assert(
+  /process\.stdin\.resume\(\)/.test(corpoDaFuncao(startSrc, 'manterLauncherVivo')),
+  'hotfix 0.6.01: manterLauncherVivo ancora o terminal com process.stdin.resume()',
+);
+assert(
+  /keepAliveTimer = setInterval\(/.test(startSrc),
+  'hotfix 0.6.01: timer âncora (handle ativo) criado junto do stdin.resume()',
+);
+assert(
+  !/keepAliveTimer\.unref\(\)/.test(startSrc),
+  'hotfix 0.6.01: o timer âncora NUNCA é unref() — é ele que segura o Event Loop',
+);
+assert(
+  /manterLauncherVivo\(\)/.test(corpoRunStart),
+  'hotfix 0.6.01: runStart chama manterLauncherVivo() depois de subir os servidores',
+);
+assert(
+  /keepAliveTimer = null/.test(startSrc) && /clearInterval\(keepAliveTimer\)/.test(startSrc),
+  'hotfix 0.6.01: pararKeepAlive limpa o timer (sem isto o launcher nunca sairia)',
+);
+assert(
+  /export function (manterLauncherVivo|pararKeepAlive)\(/.test(startSrc),
+  'hotfix 0.6.01: primitivas de keepalive exportadas (testadas pelo A/B abaixo)',
+);
+
+// Ctrl+C: handler ligado à rotina que encerra a árvore de processos
+assert(
+  /process\.on\('SIGINT',\s*\(\) => encerrarSessao\(home\)\)/.test(startSrc),
+  'hotfix 0.6.01: process.on("SIGINT") ligado a encerrarSessao (Ctrl+C encerra backend e UI)',
+);
+const corpoSessao = corpoDaFuncao(startSrc, 'encerrarSessao');
+assert(
+  /encerrarPorPid\(/.test(corpoSessao),
+  'encerrarSessao mata o backend pela árvore (encerrarPorPid → taskkill /PID /T)',
+);
+assert(
+  /uiServer\.close\(\)/.test(corpoSessao),
+  'encerrarSessao fecha a UI (porta 4030+ liberada explicitamente)',
+);
+assert(
+  /limparPidGlobal\(home\)/.test(corpoSessao),
+  'encerrarSessao limpa o lock global (não deixa lock obsoleto para o próximo start)',
+);
+assert(
+  /pararKeepAlive\(\)/.test(corpoSessao),
+  'encerrarSessao solta a âncora antes de sair',
+);
+assert(
+  /saida\(0\)/.test(corpoSessao) && /saida = process\.exit/.test(startSrc),
+  'encerrarSessao sai pela saída injectable (o teste exercita a rotina sem morrer)',
+);
+
+// caminho feliz sem process.exit(0) — nenhuma saída acidental depois de iniciar
+assert(
+  !/process\.exit\(0\)/.test(corpoRunStart),
+  'runStart NÃO chama process.exit(0) no caminho feliz (hotfix 0.6.01)',
+);
+assert(
+  /listenUi\(UI_PORT_BASE, 1\)/.test(corpoRunStart) && /iniciarWatchdog\(home\)/.test(corpoRunStart),
+  'runStart sobe UI e watchdog antes de ancorar o loop',
+);
+
+// ------------------------------------------- HOTFIX 0.6.01: A/B dinâmico
+//
+// Grupo de controle: um processo que carrega o start.js e NÃO anchor morre
+// sozinho (prova que o teste não é vazio); com `manterLauncherVivo()` ele
+// continua de pé. stdin entra em EOF desde o início (stdio 'ignore'), então
+// a única âncora possível é a do hotfix — nenhum handle do launcher real
+// está envolvido (não sobe backend, não roda Python, corre no CI).
+
+const START_URL = `file://${join(root, 'scripts', 'start.js').replace(/\\/g, '/')}`;
+const SCRIPT_SEM_ANCORA = `import(${JSON.stringify(START_URL)});`;
+const SCRIPT_COM_ANCORA = `import(${JSON.stringify(START_URL)}).then((m) => { m.manterLauncherVivo(); });`;
+const ESPERA_MS = 2500;
+
+function esperar(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function filhoMinimo(script) {
+  return spawn(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: root,
+    stdio: ['ignore', 'ignore', 'ignore'], // stdin em EOF: zero âncoras externas
+    windowsHide: true, // nunca uma janela de console (regra permanente)
+  });
+}
+
+async function testeAncoraLauncher() {
+  const controle = filhoMinimo(SCRIPT_SEM_ANCORA);
+  await esperar(ESPERA_MS);
+  const controleMorreu = controle.exitCode !== null || controle.signalCode !== null;
+  assert(
+    controleMorreu,
+    'grupo de controle: sem âncora o processo morre sozinho (o teste tem poder de detectar)',
+  );
+  if (!controleMorreu) controle.kill();
+
+  const ancorado = filhoMinimo(SCRIPT_COM_ANCORA);
+  await esperar(ESPERA_MS);
+  const ancoradoVivo = ancorado.exitCode === null && ancorado.signalCode === null;
+  assert(
+    ancoradoVivo,
+    'hotfix 0.6.01: com a âncora o launcher continua de pé (stdin em EOF, sem outro handle)',
+  );
+  if (ancoradoVivo) {
+    ancorado.kill();
+    await esperar(300);
+  }
+}
+
 // -------------------------------------------------------------- veredicto
 
-if (falhas.length === 0) {
-  console.log('Isolamento de processos: todas as verificações passaram.');
-  process.exit(0);
+function veredicto() {
+  if (falhas.length === 0) {
+    console.log('Isolamento de processos: todas as verificações passaram.');
+    process.exit(0);
+  }
+  console.error(`Isolamento de processos: ${falhas.length} verificação(ões) falharam.`);
+  process.exit(1);
 }
-console.error(`Isolamento de processos: ${falhas.length} verificação(ões) falharam.`);
-process.exit(1);
+
+testeAncoraLauncher().then(veredicto);

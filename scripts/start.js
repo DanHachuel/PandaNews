@@ -26,6 +26,10 @@ const PORT_MAX_TRIES = 20;
 const BACKEND_POLL_ATTEMPTS = 60; // até 30s para o backend iniciar
 const BACKEND_POLL_MS = 500;
 const UI_POLL_ATTEMPTS = 20; // até 10s para a UI antiga responder
+// Intervalo do timer âncora do launcher (hotfix 0.6.01). Absurdo de propósito:
+// nunca dispara na prática, mas é um handle ATIVO — o Event Loop do Node não
+// pode drenar enquanto o launcher estiver de pé.
+const KEEPALIVE_INTERVAL_MS = 60 * 60 * 1000;
 
 let activeBackendPort = API_PORT_BASE;
 
@@ -360,6 +364,42 @@ function proxyApi(req, res) {
 }
 
 let uiServer = null;
+let keepAliveTimer = null; // handle que segura o Event Loop (hotfix 0.6.01)
+
+// ------------------------------------------------------- launcher de pé
+//
+// HOTFIX 0.6.01 — o launcher encerrava sozinho depois de subir os servidores.
+// O backend nasce `detached: true` + `unref()` e o watchdog também é `unref()`
+// (de propósito: nenhum dos dois deve ditar a morte do outro). Sobrava como
+// única âncora do Event Loop a socket de listen da UI — e no momento em que
+// essa âncora sai (socket fechada, UI servida pelo backend, falha de listen
+// silenciada), o Node fica sem handles ativos, encerra a si mesmo e devolve o
+// prompt do PowerShell com o backend e a UI ainda no ar, órfãos.
+//
+// `process.stdin.resume()` segura o terminal — e com ele o Ctrl+C, que é o
+// caminho de encerramento previsto. O timer âncora cobre o resto: mesmo que
+// stdin seja um pipe que chegue a EOF (o handle do stdin é largado no EOF),
+// o loop continua com um handle ativo e o launcher fica de pé até o usuário
+// mandar parar.
+export function manterLauncherVivo() {
+  if (process.stdin && typeof process.stdin.resume === 'function') {
+    process.stdin.resume();
+  }
+  if (!keepAliveTimer) {
+    keepAliveTimer = setInterval(() => {}, KEEPALIVE_INTERVAL_MS);
+  }
+}
+
+// Solta as âncoras no encerramento — sem isto o timer seguraria o processo.
+export function pararKeepAlive() {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+  if (process.stdin && typeof process.stdin.pause === 'function') {
+    process.stdin.pause();
+  }
+}
 
 // Diretório de EXECUÇÃO do código: ~/.pandanews/runtime (runtime permanente,
 // fora do cache do npx). Só cai para PKG_ROOT em checkout de desenvolvimento.
@@ -561,6 +601,28 @@ function iniciarWatchdog(home) {
 
 // ---------------------------------------------------------------- execução
 
+// Encerramento gracioso da sessão (Ctrl+C / SIGTERM): backend pela árvore de
+// processos, UI fechada, lock global limpo. `saida` é injectable só para o
+// teste poder exercitar a rotina sem derrubar o próprio processo.
+export function encerrarSessao(home, saida = process.exit) {
+  console.log('\nEncerrando PandaNews...');
+  pararKeepAlive(); // sem isto o timer âncora seguraria o processo
+  if (uiServer) {
+    try {
+      uiServer.close(); // fecha a 4030+ explicitamente antes de sair
+    } catch {
+      /* servidor já fechado */
+    }
+  }
+  if (backendPid) {
+    encerrarPorPid(backendPid, `Backend (PID ${backendPid}) encerrado — log: ${join(home, 'data', 'backend.log')}`);
+  } else {
+    console.log('Nenhum backend foi iniciado por esta sessão.');
+  }
+  limparPidGlobal(home); // o lock global morre com a sessão
+  saida(0);
+}
+
 export async function runStart() {
   const home = resolveHome();
   if (!existsSync(join(home, '.runtime', '.ready'))) {
@@ -625,23 +687,17 @@ export async function runStart() {
   // watchdog de saúde do backend (reergue em quedas silenciosas)
   iniciarWatchdog(home);
 
-  // 4) sinais: encerramento SEMPRE por código, nunca por propagação do terminal
-  const encerrarTudo = () => {
-    console.log('\nEncerrando PandaNews...');
-    if (backendPid) {
-      encerrarPorPid(backendPid, `Backend (PID ${backendPid}) encerrado — log: ${join(home, 'data', 'backend.log')}`);
-    } else {
-      console.log('Nenhum backend foi iniciado por esta sessão.');
-    }
-    limparPidGlobal(home); // o lock global morre com a sessão
-    process.exit(0);
-  };
-  process.on('SIGINT', encerrarTudo);
-  process.on('SIGTERM', () => {
-    if (backendPid) matarArvore(backendPid);
-    limparPidGlobal(home);
-    process.exit(0);
-  });
+  // 4) sinais: encerramento SEMPRE por código, nunca por propagação do
+  //    terminal. Ctrl+C cai em encerrarSessao — backend pela árvore
+  //    (/PID /T), UI fechada, lock limpo —, então as portas são liberadas
+  //    e nenhum zumbi sobra para o próximo start.
+  process.on('SIGINT', () => encerrarSessao(home));
+  process.on('SIGTERM', () => encerrarSessao(home));
+
+  // 5) launcher de pé (hotfix 0.6.01): com backend e watchdog em unref(),
+  //    a UI era a única âncora do Event Loop. Sem handles ativos o Node
+  //    encerrava a si mesmo e devolvia o prompt com os servidores órfãos.
+  manterLauncherVivo();
 
   if (!backendOk) {
     process.exitCode = 1;

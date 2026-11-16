@@ -2,6 +2,15 @@
 
 Todas as versões publicadas são registradas aqui antes do publish (regra em AGENTS.md). A etiqueta visual usa PATCH de dois dígitos (ex.: 0.1.00); o registry npm normaliza para a versão canônica (ex.: 0.1.0).
 
+## 0.6.01 (2026-11-16)
+
+- **HOTFIX — o launcher não se encerra mais sozinho depois de subir os servidores**: o sintoma era o prompt do PowerShell voltar logo após "Pressione Ctrl+C para encerrar o launcher", com o backend e a UI ainda no ar, órfãos. **Causa**: o backend nasce `detached: true` + `unref()` e o watchdog também é `unref()` (de propósito, nenhum dita a morte do outro) — a socket de listen da UI era a **única** âncora restante do Event Loop; sem handles ativos o Node encerrava a si mesmo. **Correção**: `manterLauncherVivo()` em `scripts/start.js` ancora o loop em `process.stdin.resume()` (mantém o terminal e o Ctrl+C) **e** num timer `setInterval` **não-unref** (`KEEPALIVE_INTERVAL_MS`), que segura o processo mesmo quando stdin é um pipe que chega a EOF. `pararKeepAlive()` solta as âncoras no encerramento
+- **Ctrl+C passa a encerrar a árvore inteira**: novo `encerrarSessao(home, saida = process.exit)` — `process.on('SIGINT')` e `process.on('SIGTERM')` caem nele. Mata o backend por `encerrarPorPid` (`taskkill /PID /T /F`, silencioso), fecha a UI explicitamente (`uiServer.close()`, liberando a porta 4030+), limpa o lock global `~/.pandanews/pandanews.pid` e só então sai — nenhum zumbi para o próximo `start`. A saída é injectable para o teste exercitar a rotina sem derrubar o próprio processo
+- **Nenhuma saída acidental no caminho feliz**: o fim do `runStart` não chama `process.exit(0)`; o launcher fica de pé até o Ctrl+C do utilizador
+- **Teste de regressão com grupo de controle** em `scripts/test-start-isolation.mjs` (74 verificações, eram 51): além das asserções estáticas (âncora presente, timer nunca unref, SIGINT ligado a `encerrarSessao`, caminho feliz sem `exit(0)`), um A/B dinâmico spawna um processo com **stdin em EOF** (`stdio: ['ignore', ...]`) que carrega o `start.js` **sem** ancorar — ele morre sozinho, provando que o teste tem poder de detectar — e outro **com** `manterLauncherVivo()` — que continua de pé. Verificação por mutação feita: remover a chamada à âncora faz o teste falhar
+- Sem alteração de backend nem de frontend — apenas `scripts/start.js` e o teste de isolamento
+- Nota de transparência: esta release leva **o hotfix do launcher sobre a base da 0.5.06**. O trabalho da arquitetura SaaS 0.6.00 continua **não commitado** na árvore de trabalho (sessão paralela) e segue para uma versão posterior — a 0.6.01 aqui não o inclui
+
 ## 0.5.06 (2026-11-13)
 
 - **Docs: Adicionadas Skills de prevenção de regressões (LLM, Windows, SEO, WordPress)** — nova pasta `.agents/skills/` com 7 documentos que serão lidos obrigatoriamente antes de cada tarefa, cada um com o gatilho de leitura no topo:
