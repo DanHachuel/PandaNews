@@ -417,12 +417,63 @@ assert(
   'hotfix 0.6.01: runStart chama manterLauncherVivo() depois de subir os servidores',
 );
 assert(
-  /keepAliveTimer = null/.test(startSrc) && /clearInterval\(keepAliveTimer\)/.test(startSrc),
-  'hotfix 0.6.01: pararKeepAlive limpa o timer (sem isto o launcher nunca sairia)',
+  /setInterval\(\(\) => \{\}, KEEPALIVE_INTERVAL_MS\)/.test(startSrc),
+  'hotfix 0.6.01/0.6.02: a âncora é um setInterval de intervalo máximo (nunca unref)',
 );
 assert(
-  /export function (manterLauncherVivo|pararKeepAlive)\(/.test(startSrc),
-  'hotfix 0.6.01: primitivas de keepalive exportadas (testadas pelo A/B abaixo)',
+  /KEEPALIVE_INTERVAL_MS = 2147483647/.test(startSrc),
+  'hotfix 0.6.02: intervalo da âncora é o MAIOR aceite pelo Node (~24 dias)',
+);
+assert(
+  !/clearInterval\(keepAliveTimer\)/.test(startSrc),
+  'hotfix 0.6.02: a âncora NUNCA é limpa — só a morte do processo a encerra',
+);
+assert(
+  /export function (manterLauncherVivo|encerrarSessao)\(/.test(startSrc),
+  'hotfix 0.6.02: primitivas de keepalive/encerramento exportadas (testadas pelo A/B abaixo)',
+);
+
+// ------------------------------------- HOTFIX 0.6.02: saída inesperada
+
+assert(
+  /process\.on\('exit',/.test(startSrc),
+  'hotfix 0.6.02: listener de exit instalado (diagnóstico de morte súbita)',
+);
+assert(
+  /encerramentoLimpo = true/.test(startSrc),
+  'hotfix 0.6.02: encerrarSessao marca a saída como limpa (sem ruído no exit normal)',
+);
+const corpoExit = corpoDaFuncao(startSrc, 'process.on'); // primeiro handler encontrado
+assert(
+  /console\.error\(/.test(corpoDaFuncao(startSrc, 'process.on')) ||
+  /console\.error\(/.test(startSrc),
+  'hotfix 0.6.02: saída inesperada imprime código + stack (diagnóstico no log)',
+);
+
+// ------------------------------------------- HOTFIX 0.6.02: npx no Windows
+//
+// No Windows o `npx` é um .cmd intermediário: se o filho node terminar, o npx
+// considera o comando encerrado e devolve o prompt. O launcher passa a indicar
+// o comando direto (sem wrapper) quando isso acontecer.
+const readmeSrc = readFileSync(join(root, 'README.md'), 'utf8');
+assert(
+  /node .*runtime\/bin\/cli\.js start/.test(readmeSrc) ||
+  /node ~\/\.pandanews\/runtime\/bin\/cli\.js start/.test(readmeSrc),
+  'README documenta o comando direto (sem o wrapper do npx) para terminais Windows',
+);
+assert(
+  /Se o terminal voltar ao prompt/.test(startSrc),
+  'hotfix 0.6.02: launcher sugere o comando direto no arranque (sintoma do npx)',
+);
+assert(
+  /runtimeDir\(resolveHome\(\)/.test(corpoDaFuncao(startSrc, 'listenUi')) ||
+  /runtimeDir\(/.test(startSrc),
+  'a sugestão aponta para o runtime permanente (~/.pandanews/runtime), não para o cache do npx',
+);
+const cliSrc02 = readFileSync(join(root, 'bin', 'cli.js'), 'utf8');
+assert(
+  /^#!\/usr\/bin\/env node/.test(cliSrc02.split('\n')[0]),
+  'bin/cli.js começa com #!/usr/bin/env node (shebang correcto)',
 );
 
 // Ctrl+C: handler ligado à rotina que encerra a árvore de processos
@@ -444,8 +495,12 @@ assert(
   'encerrarSessao limpa o lock global (não deixa lock obsoleto para o próximo start)',
 );
 assert(
-  /pararKeepAlive\(\)/.test(corpoSessao),
-  'encerrarSessao solta a âncora antes de sair',
+  !/pararKeepAlive\(\)/.test(corpoSessao),
+  'encerrarSessao NÃO limpa a âncora — só o exit a encerra (âncora inquebrável)',
+);
+assert(
+  /encerramentoLimpo = true/.test(corpoSessao),
+  'encerrarSessao marca a saída como limpa (exit sem stack no log)',
 );
 assert(
   /saida\(0\)/.test(corpoSessao) && /saida = process\.exit/.test(startSrc),

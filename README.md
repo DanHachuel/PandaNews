@@ -55,6 +55,20 @@ npx.cmd --yes --prefer-online @danhachuel/pandanews@latest
 
 Ainda assim, `npm install -g` evita o download repetido a cada execução e por isso é a via recomendada.
 
+### Se o terminal voltar ao prompt sozinho
+
+O launcher é feito para **ficar de pé** depois da mensagem `Pressione Ctrl+C para encerrar o launcher` — o terminal só volta ao prompt quando você aperta Ctrl+C. A âncora é um timer do Node que nunca é liberado, e **não depende do `stdin`**, por isso funciona também em terminais remotos como o **MobaXterm**.
+
+Se, ainda assim, o prompt voltar **sem** você ter apertado Ctrl+C, a causa mais comum no Windows é o wrapper: o `npx` chama um `.cmd` intermediário e, se esse wrapper decidir que o comando terminou, o `npx` devolve o prompt mesmo com o processo filho vivo. Nesse caso, chame o launcher **directamente**, sem o `npx`:
+
+```
+node ~/.pandanews/runtime/bin/cli.js start
+```
+
+(no CMD/MobaXterm use `node %USERPROFILE%\.pandanews\runtime\bin\cli.js start`)
+
+A partir do runtime permanente não há wrapper nenhum no meio: o processo que você vê é o launcher real. Como bónus, uma morte inesperada passa a ser registada em `~/.pandanews/data/backend.log` com o código de saída e a stack, para diagnóstico.
+
 ### Encerrar o app em background
 
 O backend roda destacado e **sobrevive ao fechamento do terminal** — incluindo o Ctrl+C. Para encerrá-lo sem reiniciar a máquina:

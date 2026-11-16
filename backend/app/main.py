@@ -9,9 +9,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from backend.app.routers import auth, automacao, blogs, configuracoes, dashboard, imagens, legal, llm, logs, noticias, wordpress
-from backend.core.database import SessionLocal, init_db
+from backend.core.database import SessionLocal, Usuario, init_db
 from backend.core.llm_router import get_config
 
 
@@ -22,7 +23,11 @@ async def lifespan(_: FastAPI):
 
     db = SessionLocal()
     try:
-        if get_config(db, "scheduler_ativo", "true") == "true":
+        # multi-tenant: o scheduler arranca com as settings do primeiro utilizador
+        # (o scheduler corre sem contexto de pedido — serve blogs de todos).
+        primeiro = db.scalars(select(Usuario).order_by(Usuario.id)).first()
+        uid = primeiro.email if primeiro is not None else ""
+        if get_config(db, "scheduler_ativo", "true", uid) == "true":
             scheduler.iniciar()
             scheduler.recarregar()
     finally:

@@ -26,10 +26,11 @@ const PORT_MAX_TRIES = 20;
 const BACKEND_POLL_ATTEMPTS = 60; // até 30s para o backend iniciar
 const BACKEND_POLL_MS = 500;
 const UI_POLL_ATTEMPTS = 20; // até 10s para a UI antiga responder
-// Intervalo do timer âncora do launcher (hotfix 0.6.01). Absurdo de propósito:
-// nunca dispara na prática, mas é um handle ATIVO — o Event Loop do Node não
-// pode drenar enquanto o launcher estiver de pé.
-const KEEPALIVE_INTERVAL_MS = 60 * 60 * 1000;
+// Intervalo da âncora do launcher (hotfix 0.6.01/0.6.02): o MAIOR valor que o
+// timer do Node aceita (~24.8 dias). Na prática nunca dispara — mas é um handle
+// ATIVO, e é isso que interessa: com um handle activo o Event Loop não pode
+// drenar, logo o launcher não se encerra sozinho.
+const KEEPALIVE_INTERVAL_MS = 2147483647;
 
 let activeBackendPort = API_PORT_BASE;
 
@@ -364,42 +365,51 @@ function proxyApi(req, res) {
 }
 
 let uiServer = null;
-let keepAliveTimer = null; // handle que segura o Event Loop (hotfix 0.6.01)
+let keepAliveTimer = null; // handle que segura o Event Loop (hotfix 0.6.01/0.6.02)
+let encerramentoLimpo = false; // true só quando a saída passa por encerrarSessao
 
 // ------------------------------------------------------- launcher de pé
 //
-// HOTFIX 0.6.01 — o launcher encerrava sozinho depois de subir os servidores.
-// O backend nasce `detached: true` + `unref()` e o watchdog também é `unref()`
-// (de propósito: nenhum dos dois deve ditar a morte do outro). Sobrava como
-// única âncora do Event Loop a socket de listen da UI — e no momento em que
-// essa âncora sai (socket fechada, UI servida pelo backend, falha de listen
-// silenciada), o Node fica sem handles ativos, encerra a si mesmo e devolve o
-// prompt do PowerShell com o backend e a UI ainda no ar, órfãos.
+// HOTFIX 0.6.01/0.6.02 — o launcher encerrava sozinho depois de subir os
+// servidores e devolvia o prompt do terminal (MobaXterm, PowerShell, npx)
+// com o backend e a UI ainda no ar, órfãos.
 //
-// `process.stdin.resume()` segura o terminal — e com ele o Ctrl+C, que é o
-// caminho de encerramento previsto. O timer âncora cobre o resto: mesmo que
-// stdin seja um pipe que chegue a EOF (o handle do stdin é largado no EOF),
-// o loop continua com um handle ativo e o launcher fica de pé até o usuário
-// mandar parar.
+// CAUSA: o backend nasce `detached: true` + `unref()` e o watchdog também é
+// `unref()` (de propósito, nenhum dos dois dita a morte do outro). Sobrava
+// como única âncora do Event Loop a socket de listen da UI — e no momento em
+// que essa âncora sai (socket fechada, UI servida pelo backend, falha de
+// listen silenciada), o Node fica sem handles ativos, encerra a si mesmo.
+//
+// ÂNCORA INQUEBRÁVEL: um `setInterval` criado uma única vez, NUNCA unref'd e
+// NUNCA limpo. Um handle activo impede o Event Loop de drenar — o processo
+// só sai por `process.exit()` do nosso `encerrarSessao` (Ctrl+C/SIGTERM),
+// que não espera por handles. Não depende de stdin: no MobaXterm e em pipes
+// o stdin chega a EOF e o handle do stdin é largado (por isso a tentativa
+// anterior com `process.stdin.resume()` não segurava o loop nesses ambientes).
 export function manterLauncherVivo() {
-  if (process.stdin && typeof process.stdin.resume === 'function') {
-    process.stdin.resume();
-  }
   if (!keepAliveTimer) {
     keepAliveTimer = setInterval(() => {}, KEEPALIVE_INTERVAL_MS);
   }
+  // stdin.resume() mantém o TTY ligado (ajuda a entrega do Ctrl+C em
+  // terminais remotos), mas NÃO é a âncora: sozinho ele não segura o loop.
+  if (process.stdin && typeof process.stdin.resume === 'function') {
+    process.stdin.resume();
+  }
 }
 
-// Solta as âncoras no encerramento — sem isto o timer seguraria o processo.
-export function pararKeepAlive() {
-  if (keepAliveTimer) {
-    clearInterval(keepAliveTimer);
-    keepAliveTimer = null;
-  }
-  if (process.stdin && typeof process.stdin.pause === 'function') {
-    process.stdin.pause();
-  }
-}
+// ------------------------------------------------- saida inesperada: log
+//
+// DIAGNÓSTICO (hotfix 0.6.02): regista o código e a stack sempre que o
+// processo morre por uma rota que não é o encerramento previsto — Event Loop
+// drenado, exceção não capturada ou kill externo. Fica silencioso no caminho
+// normal para não sujar o terminal, mas guarda a informação em
+// `<home>/data/backend.log` (stderr vai para lá) para diagnosticar uma
+// regressão sem precisar reproduzir no terminal.
+process.on('exit', (code) => {
+  if (encerramentoLimpo) return;
+  console.error(`[pandanews] launcher encerrando com código ${code}`);
+  console.error(new Error('stack do encerramento').stack);
+});
 
 // Diretório de EXECUÇÃO do código: ~/.pandanews/runtime (runtime permanente,
 // fora do cache do npx). Só cai para PKG_ROOT em checkout de desenvolvimento.
@@ -459,6 +469,13 @@ function listenUi(port, attempt) {
     uiServer = server;
     console.log(`PandaNews ativo em http://127.0.0.1:${port} — abra no seu navegador.`);
     console.log('Pressione Ctrl+C para encerrar o launcher.');
+    // HOTFIX 0.6.02: no Windows o `npx` é um .cmd intermédio — se o terminal
+    // voltar ao prompt sem você apertar Ctrl+C, o comando directo evita o
+    // wrapper e mostra o launcher real (com o diagnóstico de saída no log).
+    console.log(
+      'Se o terminal voltar ao prompt sem você apertar Ctrl+C, use o comando direto:',
+    );
+    console.log(`  node ${join(runtimeDir(resolveHome()), 'bin', 'cli.js')} start`);
   });
 }
 
@@ -605,8 +622,8 @@ function iniciarWatchdog(home) {
 // processos, UI fechada, lock global limpo. `saida` é injectable só para o
 // teste poder exercitar a rotina sem derrubar o próprio processo.
 export function encerrarSessao(home, saida = process.exit) {
+  encerramentoLimpo = true; // a saída passa a ser esperada: sem stack no log
   console.log('\nEncerrando PandaNews...');
-  pararKeepAlive(); // sem isto o timer âncora seguraria o processo
   if (uiServer) {
     try {
       uiServer.close(); // fecha a 4030+ explicitamente antes de sair
