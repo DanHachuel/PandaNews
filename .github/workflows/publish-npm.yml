@@ -89,6 +89,14 @@ jobs:
           PANDANEWS_HOME="$TEST_ROOT" node bin/cli.js install --skip-python-deps
           test -d "$TEST_ROOT/data"
 
+      - name: Diagnostic npm auth (nunca falha)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "token presente: $([ -n "$NODE_AUTH_TOKEN" ] && echo sim || echo NAO)"
+          npm whoami 2>&1 | sed 's/^/whoami: /' || echo "whoami: FALHOU — token invalido/expirado/sem permissao de publish"
+
       - name: Publish to npm
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
