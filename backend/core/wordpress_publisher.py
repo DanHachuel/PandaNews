@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 
 import httpx
+from sqlalchemy import select
 
 from backend.core.config import IMAGES_DIR
 from backend.core.database import Blog
@@ -21,10 +22,10 @@ logger = logging.getLogger("uvicorn.error.pandanews")
 MINIMO_PALAVRAS_PUBLICACAO = 300
 
 
-def _credenciais(db) -> dict:
-    url = get_config(db, "wordpress_url").rstrip("/")
-    user = get_config(db, "wordpress_user")
-    app_password = get_config(db, "wordpress_app_password")
+def _credenciais(db, user_id: str = "") -> dict:
+    url = get_config(db, "wordpress_url", user_id=user_id).rstrip("/")
+    user = get_config(db, "wordpress_user", user_id=user_id)
+    app_password = get_config(db, "wordpress_app_password", user_id=user_id)
     if not (url and user and app_password):
         raise RuntimeError(
             "WordPress não configurado — informe URL, usuário e Senha de Aplicativo em Configurações → Integração WordPress."
@@ -32,11 +33,11 @@ def _credenciais(db) -> dict:
     return {"url": url, "user": user, "password": app_password}
 
 
-def credenciais_presentes(db) -> dict:
+def credenciais_presentes(db, user_id: str = "") -> dict:
     """Estado das credenciais para a UI (sem expor segredos)."""
-    url = get_config(db, "wordpress_url").rstrip("/")
-    user = get_config(db, "wordpress_user")
-    password = get_config(db, "wordpress_app_password")
+    url = get_config(db, "wordpress_url", user_id=user_id).rstrip("/")
+    user = get_config(db, "wordpress_user", user_id=user_id)
+    password = get_config(db, "wordpress_app_password", user_id=user_id)
     return {
         "configurado": bool(url and user and password),
         "url": url,
@@ -45,9 +46,9 @@ def credenciais_presentes(db) -> dict:
     }
 
 
-def testar_conexao(db) -> dict:
+def testar_conexao(db, user_id: str = "") -> dict:
     """GET /wp-json/wp/v2/users/me — valida URL + credenciais."""
-    cred = _credenciais(db)
+    cred = _credenciais(db, user_id)
     try:
         resp = httpx.get(
             f"{cred['url']}/wp-json/wp/v2/users/me",
@@ -62,6 +63,34 @@ def testar_conexao(db) -> dict:
     return {"ok": False, "detail": f"WP respondeu {resp.status_code}: {resp.text[:200]}"}
 
 
+def _bytes_da_imagem(imagem_url: str) -> tuple[bytes, str] | None:
+    """Devolve (bytes, content-type) da imagem — local ou remota (Supabase).
+
+    Em modo Supabase a ``imagem_url`` é a URL pública do Storage, não um
+    caminho em disco: sem este ramo o upload da média falhava sempre.
+    """
+    if not imagem_url:
+        return None
+    # URL remota (Supabase Storage ou outro CDN): descarrega
+    if imagem_url.startswith("http://") or imagem_url.startswith("https://"):
+        try:
+            resposta = httpx.get(imagem_url, timeout=120.0)
+            if resposta.status_code == 200 and resposta.content:
+                return resposta.content, resposta.headers.get("content-type", "image/png")
+        except httpx.HTTPError as exc:
+            logger.warning("WordPress: download da imagem %s falhou (%s)", imagem_url, exc)
+        return None
+    # caminho local: <home>/data/imagens/<nome>
+    nome = imagem_url.rsplit("/", 1)[-1]
+    if not nome:
+        return None
+    caminho = IMAGES_DIR / nome
+    if not caminho.exists():
+        return None
+    with open(caminho, "rb") as arquivo:
+        return arquivo.read(), "image/png"
+
+
 def _imagem_local(imagem_url: str) -> Path | None:
     nome = (imagem_url or "").rsplit("/", 1)[-1]
     if not nome:
@@ -70,16 +99,14 @@ def _imagem_local(imagem_url: str) -> Path | None:
     return caminho if caminho.exists() else None
 
 
-def _upload_midia(cred: dict, caminho: Path) -> int | None:
-    """Envia a imagem para a biblioteca de mídia; devolve o media ID."""
-    with open(caminho, "rb") as arquivo:
-        dados = arquivo.read()
+def _upload_midia(cred: dict, dados: bytes, nome: str, content_type: str = "image/png") -> int | None:
+    """Envia a imagem (bytes) para a biblioteca de mídia; devolve o media ID."""
     resp = httpx.post(
         f"{cred['url']}/wp-json/wp/v2/media",
         content=dados,
         headers={
-            "Content-Disposition": f'attachment; filename="{caminho.name}"',
-            "Content-Type": "image/png",
+            "Content-Disposition": f'attachment; filename="{nome}"',
+            "Content-Type": content_type,
         },
         auth=(cred["user"], cred["password"]),
         timeout=120.0,
@@ -140,9 +167,9 @@ def validar_conteudo(corpo: str) -> None:
         )
 
 
-def publish_to_wordpress(db, noticia) -> dict:
+def publish_to_wordpress(db, noticia, user_id: str = "") -> dict:
     """Publica a notícia completa. Retorna {"post_id": int, "link": str}."""
-    cred = _credenciais(db)
+    cred = _credenciais(db, user_id)
     validar_conteudo(noticia.corpo)
     palavras = contar_palavras(noticia.corpo)
     if palavras < MINIMO_PALAVRAS_PUBLICACAO:
@@ -150,14 +177,22 @@ def publish_to_wordpress(db, noticia) -> dict:
             f"Texto com {palavras} palavras — mínimo de {MINIMO_PALAVRAS_PUBLICACAO} para publicar (diretriz AdSense)."
         )
 
-    blog = db.get(Blog, noticia.blog_id)
+    # o blog tem de ser do mesmo dono da notícia
+    blog = db.scalars(
+        select(Blog).where(Blog.id == noticia.blog_id, Blog.user_id == (user_id or noticia.user_id))
+    ).first()
+    if blog is None:
+        raise RuntimeError("Blog da notícia não encontrado para este utilizador.")
     categoria_id = resolver_categoria(cred, blog.tema if blog else "")
 
     featured_media = None
     if noticia.imagem_url:
-        caminho = _imagem_local(noticia.imagem_url)
-        if caminho:
-            featured_media = _upload_midia(cred, caminho)
+        # local (data/imagens) ou remoto (Supabase Storage) — mesmos bytes
+        imagem = _bytes_da_imagem(noticia.imagem_url)
+        if imagem:
+            dados, content_type = imagem
+            nome = noticia.imagem_url.rsplit("/", 1)[-1]
+            featured_media = _upload_midia(cred, dados, nome, content_type)
 
     payload: dict = {
         "title": noticia.titulo,

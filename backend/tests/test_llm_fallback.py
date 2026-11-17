@@ -36,13 +36,23 @@ if "backend.core.database" not in sys.modules:
     _stub = types.ModuleType("backend.core.database")
 
     class _ConfiguracaoStub:
-        """Stub do modelo ORM: o FakeDB abaixo responde ao `.get()` sem tocar no ORM."""
+        """Stub do modelo ORM: o FakeDB abaixo responde ao `.get()` sem tocar no ORM.
 
-        def __init__(self, chave: str = "", valor: str = "") -> None:
+        Multi-tenant: chave composta ``(user_id, chave)``.
+        """
+
+        def __init__(self, user_id: str = "", chave: str = "", valor: str = "") -> None:
+            self.user_id = user_id
             self.chave = chave
             self.valor = valor
 
+    class _UsuarioStub:  # multi-tenant: auth.py precisa do modelo no import
+        pass
+
     _stub.Configuracao = _ConfiguracaoStub
+    _stub.Usuario = _UsuarioStub
+    _stub.SessionLocal = lambda *a, **k: None
+    _stub.get_db = lambda: None
     sys.modules["backend.core.database"] = _stub
 
 from backend.core import llm_router  # noqa: E402
@@ -54,16 +64,22 @@ class _Row:
 
 
 class FakeDB:
-    """Banco mínimo: só o que provider_config()/get_config() precisam."""
+    """Banco mínimo: só o que provider_config()/get_config() precisam.
+
+    Multi-tenant: o modelo `Configuracao` tem chave composta
+    ``(user_id, chave)``, por isso `.get()` recebe um tuple.
+    """
 
     def __init__(self, valores: dict[str, str]) -> None:
         self.valores = dict(valores)
 
-    def get(self, _modelo, chave: str):
+    def get(self, _modelo, chave):
+        if isinstance(chave, tuple):  # (user_id, chave) — chave composta
+            chave = chave[1]
         return _Row(self.valores[chave]) if chave in self.valores else None
 
     def add(self, row) -> None:  # PUT de configurações grava por aqui
-        self.valores[row.chave] = row.valor
+        self.valores[getattr(row, "chave", row.chave)] = row.valor
 
     def commit(self) -> None:
         pass
@@ -98,7 +114,7 @@ class _Resposta410:
     status_code = 410
 
 
-def _chamar_nvidia_410(db, provider, prompt, max_tokens):
+def _chamar_nvidia_410(db, provider, prompt, max_tokens, user_id=""):
     if provider == "nvidia":
         raise RuntimeError("410 Gone: modelo 'meta/llama-3.3-70b-instruct' chegou ao fim da vida")
     return "noticia gerada pelo gemini", "gemini-3.8-flash"
@@ -131,7 +147,7 @@ check(
 
 # --------------------------------------------- 2) todos falham -> erro claro
 
-def _chamar_todos_falham(db, provider, prompt, max_tokens):
+def _chamar_todos_falham(db, provider, prompt, max_tokens, user_id=""):
     raise RuntimeError(f"{provider} fora do ar")
 
 
@@ -417,8 +433,12 @@ llm_router.httpx.get = lambda url, **kw: _RespostaHttp(
         ]
     },
 )
+class _UtilizadorFalso:  # multi-tenant: endpoints protegidos exigem o dono
+    email = "teste@exemplo.com"
+
+
 try:
-    catalogo = configuracoes.listar_modelos_nvidia(db_prefixada)
+    catalogo = configuracoes.listar_modelos_nvidia(db_prefixada, _UtilizadorFalso())
 finally:
     llm_router.httpx.get = _resposta_get_original
 
@@ -435,14 +455,17 @@ check(
 
 db_put = FakeDB({})
 configuracoes.salvar_configuracoes(
-    ConfiguracoesPatch(nvidia_model="nvidia_nim/mistralai/mistral-large-4-1t-a52b"), db_put
+    ConfiguracoesPatch(nvidia_model="nvidia_nim/mistralai/mistral-large-4-1t-a52b"),
+    db_put,
+    _UtilizadorFalso(),
 )
 check(
     db_put.valores.get("nvidia_model") == "mistralai/mistral-large-4-1t-a52b",
     f"PUT: grava só o id limpo no banco — obtido: {db_put.valores.get('nvidia_model')!r}",
 )
 check(
-    configuracoes.obter_configuracoes(db_put)["nvidia_model"] == "mistralai/mistral-large-4-1t-a52b",
+    configuracoes.obter_configuracoes(db_put, _UtilizadorFalso())["nvidia_model"]
+    == "mistralai/mistral-large-4-1t-a52b",
     "GET: a UI recebe o id limpo mesmo com valor prefixado no banco",
 )
 

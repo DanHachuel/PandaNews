@@ -22,6 +22,11 @@ class SenhaIn(BaseModel):
     senha_nova: str = Field(min_length=6, max_length=200, description="mínimo 6 caracteres")
 
 
+class RegistroIn(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+    senha: str = Field(min_length=6, max_length=200, description="mínimo 6 caracteres")
+
+
 def usuario_atual(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
@@ -41,6 +46,15 @@ def usuario_atual(
     return usuario
 
 
+def user_id_de(usuario: Usuario) -> str:
+    """`user_id` do dono dos dados = o e-mail (o `sub` do JWT).
+
+    Usado por todos os endpoints protegidos para filtrar as consultas:
+    nenhum utilizador vê dados de outro (prevenção de IDOR).
+    """
+    return usuario.email
+
+
 @router.get("/status")
 def status(db: Session = Depends(get_db)) -> dict:
     """Estado da sessão — usado pelo frontend para validar um token guardado."""
@@ -57,6 +71,25 @@ def login(payload: LoginIn, db: Session = Depends(get_db)) -> dict:
     if usuario is None or not auth_core.senha_confere(payload.senha, usuario.senha_hash):
         raise HTTPException(status_code=401, detail="E-mail ou senha incorretos.")
     return {"ok": True, "token": auth_core.gerar_token(usuario.email), "email": usuario.email}
+
+
+@router.post("/registro")
+def registro(payload: RegistroIn, db: Session = Depends(get_db)) -> dict:
+    """Cria uma conta nova (SaaS multi-tenant) e devolve o token de sessão.
+
+    Cada conta passa a ver apenas os dados dela: o `user_id` usado no banco é
+    o próprio e-mail (o `sub` do JWT).
+    """
+    email = payload.email.strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Informe um e-mail válido.")
+    existente = db.scalars(select(Usuario).where(Usuario.email == email)).first()
+    if existente is not None:
+        raise HTTPException(status_code=409, detail="Este e-mail já tem uma conta — entre com ela.")
+    usuario = Usuario(email=email, senha_hash=auth_core.hash_senha(payload.senha))
+    db.add(usuario)
+    db.commit()
+    return {"ok": True, "token": auth_core.gerar_token(email), "email": email}
 
 
 @router.get("/eu")

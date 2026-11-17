@@ -78,6 +78,11 @@ jobs:
           pip install --quiet --disable-pip-version-check -r backend/requirements.txt
           python backend/tests/test_seo_auth.py
 
+      - name: Test multi-tenancy (migracao + isolamento + IDOR)
+        run: |
+          pip install --quiet --disable-pip-version-check -r backend/requirements.txt
+          python backend/tests/test_multi_tenant.py
+
       - name: Smoke test launcher install
         run: |
           TEST_ROOT="${RUNNER_TEMP}/pandanews-install-smoke"

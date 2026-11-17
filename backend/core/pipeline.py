@@ -207,9 +207,11 @@ def gerar_noticia(blog_id: int) -> Noticia | None:
         item = novos[0]
 
         # 3. Redação via LLM (fallback NVIDIA -> Gemini) — teto alto p/ diretriz
-        # AdSense (mínimo 1500 palavras)
+        # AdSense (mínimo 1500 palavras). As chaves do LLM são do DONO do blog.
         try:
-            resposta, provedor = llm_router.gerar_texto(db, _prompt_redacao(blog, item), max_tokens=4000)
+            resposta, provedor = llm_router.gerar_texto(
+                db, _prompt_redacao(blog, item), max_tokens=4000, user_id=blog.user_id or ""
+            )
         except Exception as exc:  # noqa: BLE001
             _log(db, blog.id, "redacao", "erro", f"Falha na redação: {exc}")
             return None
@@ -227,6 +229,7 @@ def gerar_noticia(blog_id: int) -> Noticia | None:
         _log(db, blog.id, "redacao", "sucesso", f"Notícia redigida via {provedor}: {titulo}")
 
         noticia = Noticia(
+            user_id=blog.user_id or "",
             blog_id=blog.id,
             titulo=titulo,
             resumo=resumo,
@@ -272,7 +275,9 @@ def regenerar_noticia(noticia_id: int) -> Noticia | None:
             blog,
             {"titulo": noticia.fonte_titulo, "resumo": noticia.resumo or noticia.corpo[:300], "link": noticia.fonte_url},
         )
-        resposta, provedor = llm_router.gerar_texto(db, prompt, max_tokens=4000)
+        resposta, provedor = llm_router.gerar_texto(
+            db, prompt, max_tokens=4000, user_id=noticia.user_id or ""
+        )
         dados = _parse_resposta_llm(resposta)
 
         titulo = _limpar_titulo(str(dados.get("titulo") or noticia.fonte_titulo or ""))

@@ -109,25 +109,34 @@ def _headers(api_key: str) -> dict:
 
 # ------------------------------------------------------------- acesso a config
 
-def get_config(db, chave: str, padrao: str = "") -> str:
+def get_config(db, chave: str, padrao: str = "", user_id: str = "") -> str:
+    """Lê uma configuração do utilizador (`user_id` = e-mail do dono).
+
+    Multi-tenancy: sem `user_id` a leitura cai no balde legado (string vazia),
+    que é onde ficam as settings anteriores à migração — usado apenas por
+    caminhos internos (testes, migração). Todo endpoint protegido passa o
+    e-mail do token.
+    """
     from backend.core.database import Configuracao
 
-    row = db.get(Configuracao, chave)
+    row = db.get(Configuracao, (user_id or "", chave))
     return row.valor if row is not None and row.valor else padrao
 
 
-def provider_config(db, provider: str) -> dict:
+def provider_config(db, provider: str, user_id: str = "") -> dict:
     return {
-        "api_key": get_config(db, f"{provider}_api_key"),
-        "base_url": get_config(db, f"{provider}_base_url", DEFAULT_LLM_BASE_URLS[provider]),
+        "api_key": get_config(db, f"{provider}_api_key", user_id=user_id),
+        "base_url": get_config(db, f"{provider}_base_url", DEFAULT_LLM_BASE_URLS[provider], user_id),
         # O id sai do banco já limpo: nada de `nvidia_nim/` no payload HTTP.
-        "model": limpar_nome_modelo(get_config(db, f"{provider}_model", DEFAULT_LLM_MODELS[provider])),
+        "model": limpar_nome_modelo(
+            get_config(db, f"{provider}_model", DEFAULT_LLM_MODELS[provider], user_id)
+        ),
     }
 
 
 # ---------------------------------------------------------- chamada ao provedor
 
-def chamar_provedor(db, provider: str, prompt: str, max_tokens: int) -> tuple[str, str]:
+def chamar_provedor(db, provider: str, prompt: str, max_tokens: int, user_id: str = "") -> tuple[str, str]:
     """Uma chamada de chat completion no provedor. Levanta em caso de erro.
 
     Cópia da estrutura do Thunderbolt: POST HTTP direto no endpoint
@@ -135,7 +144,7 @@ def chamar_provedor(db, provider: str, prompt: str, max_tokens: int) -> tuple[st
     levanta ``httpx.HTTPStatusError`` — capturada pelo fallback em
     ``gerar_texto``.
     """
-    cfg = provider_config(db, provider)
+    cfg = provider_config(db, provider, user_id)
     if not cfg["api_key"]:
         raise RuntimeError(f"{NOMES_PROVEDORES.get(provider, provider)}: API key não configurada.")
     if not cfg["model"]:
@@ -171,15 +180,15 @@ def chamar_provedor(db, provider: str, prompt: str, max_tokens: int) -> tuple[st
     return texto, modelo or str(dados.get("model") or cfg["model"])
 
 
-def gerar_texto(db, prompt: str, max_tokens: int = 1024) -> tuple[str, str]:
+def gerar_texto(db, prompt: str, max_tokens: int = 1024, user_id: str = "") -> tuple[str, str]:
     """Gera texto com fallback ordenado. Retorna (texto, provedor_que_respondeu).
 
     Fallback implacável: capture ``Exception`` — não importa se é HTTP 404/410
     (modelo descontinuado), 500, timeout ou queda de rede. O incidente é
     registrado e o próximo provedor é acionado na mesma iteração.
     """
-    ordem = [p.strip() for p in get_config(db, "llm_fallback_ordem", "nvidia,google").split(",") if p.strip()]
-    disponiveis = [p for p in ordem if p in PROVEDORES and provider_config(db, p)["api_key"]]
+    ordem = [p.strip() for p in get_config(db, "llm_fallback_ordem", "nvidia,google", user_id).split(",") if p.strip()]
+    disponiveis = [p for p in ordem if p in PROVEDORES and provider_config(db, p, user_id)["api_key"]]
     if not disponiveis:
         raise RuntimeError("Nenhum provedor de LLM configurado. Adicione uma API key em Configurações.")
 
@@ -190,7 +199,7 @@ def gerar_texto(db, prompt: str, max_tokens: int = 1024) -> tuple[str, str]:
         nome_proximo = NOMES_PROVEDORES.get(proximo, proximo) if proximo else "nenhum provedor"
 
         try:
-            texto, modelo = chamar_provedor(db, provider, prompt, max_tokens)
+            texto, modelo = chamar_provedor(db, provider, prompt, max_tokens, user_id)
             logger.info("LLM: %s respondeu (modelo %s)", nome, modelo)
             # Banco/UI rotulam o provedor do Gemini como "gemini" (id de exibição,
             # não o id interno "google") — mantido desde a 0.4.05.
@@ -210,7 +219,7 @@ def gerar_texto(db, prompt: str, max_tokens: int = 1024) -> tuple[str, str]:
 
 # ------------------------------------------------------------ teste de conexão
 
-def test_provider(db, provider: str) -> dict:
+def test_provider(db, provider: str, user_id: str = "") -> dict:
     """Teste REAL de conexão: uma chamada de inferência com 1 token.
 
     Igual ao ``validate_openai_compatible_api_key`` do Thunderbolt — não lista
@@ -222,7 +231,7 @@ def test_provider(db, provider: str) -> dict:
     """
     if provider not in PROVEDORES:
         return {"ok": False, "detail": f"Provedor desconhecido: {provider}"}
-    cfg = provider_config(db, provider)
+    cfg = provider_config(db, provider, user_id)
     if not cfg["api_key"]:
         return {"ok": False, "detail": "API key não configurada — adicione em Configurações."}
     if not cfg["model"]:

@@ -6,9 +6,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from backend.app.routers.auth import user_id_de, usuario_atual
 from backend.app.schemas import ConfiguracoesPatch
 from backend.core.config import DEFAULT_LLM_BASE_URLS, DEFAULT_LLM_MODELS, SUPABASE_URL
-from backend.core.database import Configuracao, get_db
+from backend.core.database import Configuracao, Usuario, get_db
 from backend.core.llm_router import get_config, limpar_nome_modelo
 
 router = APIRouter(prefix="/configuracoes", tags=["configuracoes"])
@@ -46,7 +47,7 @@ def _listar_backups() -> list[dict]:
     ]
 
 
-def _status_banco(db: Session) -> dict:
+def _status_banco(db: Session, user_id: str = "") -> dict:
     """Estado do banco activo para a UI — 'SQLite local' ou 'Supabase conectado'.
 
     Nunca levanta: uma falha ao inspeccionar o Supabase (dependência ausente,
@@ -55,12 +56,12 @@ def _status_banco(db: Session) -> dict:
     de um serviço opcional.
     """
     backups = _listar_backups()
-    migrado = get_config(db, "supabase_migrado", "") == "true"
+    migrado = get_config(db, "supabase_migrado", "", user_id) == "true"
 
     try:
         from backend.core import supabase_db
 
-        cred = supabase_db.obter_credenciais()
+        cred = supabase_db.obter_credenciais(user_id)
     except Exception as exc:  # noqa: BLE001 — Supabase é opcional
         return {
             "backend": "sqlite",
@@ -72,7 +73,7 @@ def _status_banco(db: Session) -> dict:
         }
 
     detectado = bool(cred["url"] and cred["key"])
-    em_uso = get_config(db, "db_backend", "supabase" if detectado else "sqlite")
+    em_uso = get_config(db, "db_backend", "supabase" if detectado else "sqlite", user_id)
 
     if em_uso == "supabase" and detectado:
         return {
@@ -96,29 +97,36 @@ def _status_banco(db: Session) -> dict:
 
 
 @router.get("")
-def obter_configuracoes(db: Session = Depends(get_db)) -> dict:
+def obter_configuracoes(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+) -> dict:
+    uid = user_id_de(usuario)
     return {
-        "nvidia_api_key": _mask(get_config(db, "nvidia_api_key")),
-        "nvidia_base_url": get_config(db, "nvidia_base_url", DEFAULT_LLM_BASE_URLS["nvidia"]),
-        "nvidia_model": limpar_nome_modelo(get_config(db, "nvidia_model", DEFAULT_LLM_MODELS["nvidia"])),
-        "google_api_key": _mask(get_config(db, "google_api_key")),
-        "google_base_url": get_config(db, "google_base_url", DEFAULT_LLM_BASE_URLS["google"]),
-        "google_model": limpar_nome_modelo(get_config(db, "google_model", DEFAULT_LLM_MODELS["google"])),
-        "llm_fallback_ordem": get_config(db, "llm_fallback_ordem", "nvidia,google"),
-        "db_backend": get_config(db, "db_backend", "supabase" if SUPABASE_URL else "sqlite"),
+        "nvidia_api_key": _mask(get_config(db, "nvidia_api_key", user_id=uid)),
+        "nvidia_base_url": get_config(db, "nvidia_base_url", DEFAULT_LLM_BASE_URLS["nvidia"], uid),
+        "nvidia_model": limpar_nome_modelo(get_config(db, "nvidia_model", DEFAULT_LLM_MODELS["nvidia"], uid)),
+        "google_api_key": _mask(get_config(db, "google_api_key", user_id=uid)),
+        "google_base_url": get_config(db, "google_base_url", DEFAULT_LLM_BASE_URLS["google"], uid),
+        "google_model": limpar_nome_modelo(get_config(db, "google_model", DEFAULT_LLM_MODELS["google"], uid)),
+        "llm_fallback_ordem": get_config(db, "llm_fallback_ordem", "nvidia,google", uid),
+        "db_backend": get_config(db, "db_backend", "supabase" if SUPABASE_URL else "sqlite", uid),
         "supabase_url": SUPABASE_URL,
-        "supabase_service_role_key": _mask(get_config(db, "supabase_service_role_key")),
-        "scheduler_ativo": get_config(db, "scheduler_ativo", "true") == "true",
-        "intervalo_padrao_horas": int(get_config(db, "intervalo_padrao_horas", "6") or 6),
-        "meta_diaria": int(get_config(db, "meta_diaria", "3") or 3),
+        "supabase_service_role_key": _mask(get_config(db, "supabase_service_role_key", user_id=uid)),
+        "scheduler_ativo": get_config(db, "scheduler_ativo", "true", uid) == "true",
+        "intervalo_padrao_horas": int(get_config(db, "intervalo_padrao_horas", "6", uid) or 6),
+        "meta_diaria": int(get_config(db, "meta_diaria", "3", uid) or 3),
         "supabase_detectado": bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
-        or bool(get_config(db, "supabase_url") and get_config(db, "supabase_service_role_key")),
-        "banco": _status_banco(db),
+        or bool(get_config(db, "supabase_url", user_id=uid) and get_config(db, "supabase_service_role_key", user_id=uid)),
+        "banco": _status_banco(db, uid),
     }
 
 
 @router.get("/llm/nvidia/models")
-def listar_modelos_nvidia(db: Session = Depends(get_db)) -> dict:
+def listar_modelos_nvidia(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+) -> dict:
     """Lista os modelos NVIDIA NIM disponíveis para a chave configurada.
 
     Proxy: a API key fica no banco local e nunca é exposta ao frontend.
@@ -134,7 +142,7 @@ def listar_modelos_nvidia(db: Session = Depends(get_db)) -> dict:
 
     from backend.core.llm_router import _normalizar_base_url, provider_config
 
-    cfg = provider_config(db, "nvidia")
+    cfg = provider_config(db, "nvidia", user_id_de(usuario))
     if not cfg["api_key"]:
         raise HTTPException(status_code=400, detail="API Key da NVIDIA não configurada — adicione-a antes de listar os modelos.")
     base = _normalizar_base_url(cfg["base_url"])
@@ -177,12 +185,16 @@ def listar_modelos_nvidia(db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/testar-supabase")
-def testar_supabase() -> dict:
+def testar_supabase(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+) -> dict:
     from backend.core import supabase_db
 
+    uid = user_id_de(usuario)
     try:
-        cred = supabase_db.obter_credenciais()
-        return {**supabase_db.testar_conexao(), "credencial_em": cred["origem"]}
+        cred = supabase_db.obter_credenciais(uid)
+        return {**supabase_db.testar_conexao(uid), "credencial_em": cred["origem"]}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "detail": str(exc)[:400]}
 
@@ -195,19 +207,31 @@ def schema_supabase() -> dict:
 
 
 @router.post("/migrar-supabase")
-def migrar_supabase() -> dict:
+def migrar_supabase(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+) -> dict:
     from backend.core import supabase_db
 
+    uid = user_id_de(usuario)
     try:
-        return supabase_db.migrar_do_sqlite()
+        return supabase_db.migrar_do_sqlite(uid)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "detail": str(exc)[:400]}
 
 
 @router.put("")
-def salvar_configuracoes(payload: ConfiguracoesPatch, db: Session = Depends(get_db)) -> dict:
+def salvar_configuracoes(
+    payload: ConfiguracoesPatch,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+) -> dict:
+    uid = user_id_de(usuario)
     data = payload.model_dump(exclude_none=True)
     for chave, valor in data.items():
+        # user_id nunca vem do payload: muda de dono é privilégio do servidor
+        if chave == "user_id":
+            continue
         if chave in CHAVES_MODELO and isinstance(valor, str):
             # HOTFIX 0.5.03: grava só o id limpo — `nvidia_nim/` nunca entra
             # no banco, então a UI e a próxima chamada já nascem corretas.
@@ -218,9 +242,10 @@ def salvar_configuracoes(payload: ConfiguracoesPatch, db: Session = Depends(get_
             continue  # vazio não apaga segredo existente (UX sem travas)
         if isinstance(valor, bool):
             valor = "true" if valor else "false"
-        row = db.get(Configuracao, chave)
+        # chave composta (user_id, chave): cada conta tem as suas settings
+        row = db.get(Configuracao, (uid, chave))
         if row is None:
-            row = Configuracao(chave=chave, valor=str(valor))
+            row = Configuracao(user_id=uid, chave=chave, valor=str(valor))
             db.add(row)
         else:
             row.valor = str(valor)
@@ -237,4 +262,4 @@ def salvar_configuracoes(payload: ConfiguracoesPatch, db: Session = Depends(get_
             scheduler.recarregar()
         else:
             scheduler.parar()
-    return obter_configuracoes(db)
+    return obter_configuracoes(db, usuario)

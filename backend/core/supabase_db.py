@@ -13,8 +13,12 @@ from sqlalchemy import select
 TABELAS_ESPERADAS = ("blogs", "noticias", "configuracoes", "logs", "usuarios")
 
 SCHEMA_SQL = """-- PandaNews — schema para Supabase (execute no SQL Editor do painel)
+-- Multi-tenant: user_id (e-mail do dono) em blogs, noticias e configuracoes.
+-- O bucket de imagens (pandanews-imagens) e criado no painel: Storage →
+-- New bucket → nome "pandanews-imagens" → Public bucket.
 create table if not exists public.blogs (
   id bigint primary key generated always as identity,
+  user_id text not null default '',
   nome text not null,
   tema text not null default 'geral',
   regiao text not null default 'Brasil',
@@ -27,6 +31,7 @@ create table if not exists public.blogs (
 
 create table if not exists public.noticias (
   id bigint primary key generated always as identity,
+  user_id text not null default '',
   blog_id bigint not null references public.blogs(id) on delete cascade,
   titulo text not null default '',
   corpo text not null default '',
@@ -34,14 +39,17 @@ create table if not exists public.noticias (
   imagem_url text not null default '',
   status text not null default 'rascunho',
   llm_provider text not null default '',
+  wordpress_post_id bigint,
   fonte_url text not null default '',
   fonte_titulo text not null default '',
   created_at timestamptz not null default now()
 );
 
 create table if not exists public.configuracoes (
-  chave text primary key,
-  valor text not null default ''
+  user_id text not null default '',
+  chave text not null,
+  valor text not null default '',
+  primary key (user_id, chave)
 );
 
 create table if not exists public.logs (
@@ -59,11 +67,19 @@ create table if not exists public.usuarios (
   senha_hash text not null default '',
   criado_em timestamptz not null default now()
 );
+
+-- Índices de isolamento: toda a consulta filtra por user_id.
+create index if not exists blogs_user_id_idx on public.blogs(user_id);
+create index if not exists noticias_user_id_idx on public.noticias(user_id);
 """
 
 
-def obter_credenciais() -> dict:
-    """Credenciais do Supabase: ambiente tem prioridade; senão, configuracoes."""
+def obter_credenciais(user_id: str = "") -> dict:
+    """Credenciais do Supabase: ambiente tem prioridade; senão, configuracoes.
+
+    Multi-tenant: as credenciais guardadas no banco são do utilizador
+    (chave composta ``user_id`` + ``chave``).
+    """
     import os
 
     url = os.environ.get("SUPABASE_URL", "")
@@ -74,8 +90,8 @@ def obter_credenciais() -> dict:
 
     db = SessionLocal()
     try:
-        row_url = db.get(Configuracao, "supabase_url")
-        row_key = db.get(Configuracao, "supabase_service_role_key")
+        row_url = db.get(Configuracao, (user_id or "", "supabase_url"))
+        row_key = db.get(Configuracao, (user_id or "", "supabase_service_role_key"))
         if row_url and row_url.valor and row_key and row_key.valor:
             return {"url": row_url.valor, "key": row_key.valor, "origem": "configuracoes"}
     finally:
@@ -83,10 +99,10 @@ def obter_credenciais() -> dict:
     return {"url": "", "key": "", "origem": ""}
 
 
-def _client():
+def _client(user_id: str = ""):
     from supabase import create_client
 
-    cred = obter_credenciais()
+    cred = obter_credenciais(user_id)
     if not (cred["url"] and cred["key"]):
         raise RuntimeError(
             "Credenciais do Supabase não encontradas. Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY "
@@ -106,9 +122,9 @@ def _tabela_existe(client, tabela: str) -> bool:
         raise
 
 
-def testar_conexao() -> dict:
+def testar_conexao(user_id: str = "") -> dict:
     """Testa a conexão e a existência do schema (sem criar nada sozinho)."""
-    client = _client()
+    client = _client(user_id)
     faltando = [t for t in TABELAS_ESPERADAS if not _tabela_existe(client, t)]
     if faltando:
         return {
@@ -148,18 +164,19 @@ def criar_backup_sqlite() -> dict:
     }
 
 
-def migrar_do_sqlite() -> dict:
-    """Copia blogs, notícias, configurações, logs e usuários para o Supabase.
+def migrar_do_sqlite(user_id: str = "") -> dict:
+    """Copia OS DADOS DO UTILIZADOR para o Supabase (multi-tenant).
 
     O backup do SQLite é feito ANTES de tocar no destino: a migração é
     destrutiva do ponto de vista do utilizador (os dados passam a viver na
-    nuvem) e precisa de rede de segurança.
+    nuvem) e precisa de rede de segurança. Só migra o que é do dono.
     """
     from backend.core.database import Blog, Configuracao, Log, Noticia, SessionLocal, Usuario
 
     backup = criar_backup_sqlite()
+    uid = user_id or ""
 
-    client = _client()
+    client = _client(uid)
     faltando = [t for t in TABELAS_ESPERADAS if not _tabela_existe(client, t)]
     if faltando:
         raise RuntimeError(
@@ -169,12 +186,13 @@ def migrar_do_sqlite() -> dict:
     db = SessionLocal()
     migrados: dict[str, int] = {}
     try:
-        blogs = db.scalars(select(Blog)).all()
+        blogs = db.scalars(select(Blog).where(Blog.user_id == uid)).all()
         if blogs:
             client.table("blogs").upsert(
                 [
                     {
                         "id": b.id,
+                        "user_id": b.user_id or "",
                         "nome": b.nome,
                         "tema": b.tema,
                         "regiao": b.regiao,
@@ -189,12 +207,13 @@ def migrar_do_sqlite() -> dict:
             ).execute()
         migrados["blogs"] = len(blogs)
 
-        noticias = db.scalars(select(Noticia)).all()
+        noticias = db.scalars(select(Noticia).where(Noticia.user_id == uid)).all()
         if noticias:
             client.table("noticias").upsert(
                 [
                     {
                         "id": n.id,
+                        "user_id": n.user_id or "",
                         "blog_id": n.blog_id,
                         "titulo": n.titulo,
                         "corpo": n.corpo,
@@ -211,9 +230,11 @@ def migrar_do_sqlite() -> dict:
             ).execute()
         migrados["noticias"] = len(noticias)
 
-        confs = db.scalars(select(Configuracao)).all()
+        confs = db.scalars(select(Configuracao).where(Configuracao.user_id == uid)).all()
         if confs:
-            client.table("configuracoes").upsert([{"chave": c.chave, "valor": c.valor} for c in confs]).execute()
+            client.table("configuracoes").upsert(
+                [{"user_id": c.user_id or "", "chave": c.chave, "valor": c.valor} for c in confs]
+            ).execute()
         migrados["configuracoes"] = len(confs)
 
         logs = db.scalars(select(Log).order_by(Log.created_at.desc()).limit(200)).all()

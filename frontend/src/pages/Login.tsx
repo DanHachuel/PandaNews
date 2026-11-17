@@ -7,6 +7,7 @@ import { useAuth } from '../lib/auth';
 
 /** Login local do painel — layout centralizado, cartão único (Lei de Hick). */
 export function Login() {
+  const [modo, setModo] = useState<'entrar' | 'registrar'>('entrar');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
@@ -14,12 +15,21 @@ export function Login() {
   const entrar = useAuth((s) => s.entrar);
   const navegar = useNavigate();
 
+  const registrando = modo === 'registrar';
+
+  function alternarModo() {
+    setModo(registrando ? 'entrar' : 'registrar');
+    setErro('');
+    setSenha('');
+  }
+
   async function submeter(e: React.FormEvent) {
     e.preventDefault();
     setErro('');
     setEnviando(true);
     try {
-      const resp = await fetch(`${API_BASE}/auth/login`, {
+      const rota = registrando ? '/auth/registro' : '/auth/login';
+      const resp = await fetch(`${API_BASE}${rota}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), senha }),
@@ -44,7 +54,9 @@ export function Login() {
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <PandaLogo size={56} />
           <h1 className="text-2xl font-bold text-slate-100">PandaNews</h1>
-          <p className="text-sm text-slate-400">Entre com a sua conta local para acessar o painel.</p>
+          <p className="text-sm text-slate-400">
+            {registrando ? 'Crie a sua conta para acessar o painel.' : 'Entre com a sua conta local para acessar o painel.'}
+          </p>
         </div>
 
         <form onSubmit={submeter} className="space-y-4">
@@ -60,14 +72,15 @@ export function Login() {
               autoFocus
             />
           </Field>
-          <Field label="Senha">
+          <Field label="Senha" hint={registrando ? 'Mínimo de 6 caracteres' : undefined}>
             <input
               type="password"
               className={inputClass}
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
               placeholder="••••••"
-              autoComplete="current-password"
+              autoComplete={registrando ? 'new-password' : 'current-password'}
+              minLength={registrando ? 6 : undefined}
               required
             />
           </Field>
@@ -80,9 +93,19 @@ export function Login() {
 
           {/* Fitts: botão de acção principal com altura confortável */}
           <Button type="submit" disabled={enviando} className="h-12 w-full justify-center text-base">
-            {enviando ? 'Entrando…' : 'Entrar'}
+            {enviando ? (registrando ? 'Criando…' : 'Entrando…') : registrando ? 'Criar conta' : 'Entrar'}
           </Button>
         </form>
+
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={alternarModo}
+            className="text-xs font-medium text-slate-400 underline transition-colors hover:text-slate-200"
+          >
+            {registrando ? 'Já tenho uma conta — entrar' : 'Criar nova conta'}
+          </button>
+        </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">
           Esqueceu a senha? Edite-a direto no banco em <code className="font-mono">~/.pandanews</code>.

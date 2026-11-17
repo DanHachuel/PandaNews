@@ -6,8 +6,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.routers.auth import user_id_de, usuario_atual
 from backend.app.schemas import NoticiaPatch, STATUS_NOTICIA
-from backend.core.database import Log, Noticia, get_db
+from backend.core.database import Blog, Log, Noticia, Usuario, get_db
 
 router = APIRouter(prefix="/noticias", tags=["noticias"])
 
@@ -34,9 +35,19 @@ def _serializar(n: Noticia) -> dict:
 
 
 @router.post("/gerar", status_code=201)
-def gerar_noticia(payload: GerarIn) -> dict:
+def gerar_noticia(
+    payload: GerarIn,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+) -> dict:
     from backend.core import pipeline
 
+    # o blog tem de ser do utilizador: gerar noutro blog seria IDOR
+    blog = db.scalars(
+        select(Blog).where(Blog.id == payload.blog_id, Blog.user_id == user_id_de(usuario))
+    ).first()
+    if blog is None:
+        raise HTTPException(status_code=404, detail="Blog não encontrado")
     noticia = pipeline.gerar_noticia(payload.blog_id)
     if noticia is None:
         raise HTTPException(
@@ -47,11 +58,16 @@ def gerar_noticia(payload: GerarIn) -> dict:
 
 
 @router.post("/{noticia_id}/publicar")
-def publicar_noticia(noticia_id: int, db: Session = Depends(get_db)) -> dict:
+def publicar_noticia(
+    noticia_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+) -> dict:
     """Publica a notícia no WordPress configurado (imagem + categoria)."""
     from backend.core import wordpress_publisher
 
-    noticia = db.get(Noticia, noticia_id)
+    uid = user_id_de(usuario)
+    noticia = db.scalars(select(Noticia).where(Noticia.id == noticia_id, Noticia.user_id == uid)).first()
     if noticia is None:
         raise HTTPException(status_code=404, detail="Notícia não encontrada")
     if noticia.wordpress_post_id:
@@ -67,7 +83,7 @@ def publicar_noticia(noticia_id: int, db: Session = Depends(get_db)) -> dict:
             ),
         )
     try:
-        resultado = wordpress_publisher.publish_to_wordpress(db, noticia)
+        resultado = wordpress_publisher.publish_to_wordpress(db, noticia, uid)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -87,9 +103,17 @@ def publicar_noticia(noticia_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/{noticia_id}/regenerar")
-def regenerar_noticia(noticia_id: int) -> dict:
+def regenerar_noticia(
+    noticia_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+) -> dict:
     from backend.core import pipeline
 
+    uid = user_id_de(usuario)
+    dono = db.scalars(select(Noticia).where(Noticia.id == noticia_id, Noticia.user_id == uid)).first()
+    if dono is None:
+        raise HTTPException(status_code=404, detail="Notícia não encontrada")
     noticia = pipeline.regenerar_noticia(noticia_id)
     if noticia is None:
         raise HTTPException(status_code=404, detail="Notícia (ou blog/fonte) não encontrada")
@@ -104,8 +128,10 @@ def listar_noticias(
     status: str | None = None,
     limit: int = 100,
     db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
 ) -> list[dict]:
-    query = select(Noticia).order_by(Noticia.created_at.desc()).limit(min(limit, 500))
+    uid = user_id_de(usuario)
+    query = select(Noticia).where(Noticia.user_id == uid).order_by(Noticia.created_at.desc()).limit(min(limit, 500))
     if blog_id is not None:
         query = query.where(Noticia.blog_id == blog_id)
     if status:
@@ -128,15 +154,23 @@ def listar_noticias(
 
 
 @router.patch("/{noticia_id}")
-def atualizar_noticia(noticia_id: int, payload: NoticiaPatch, db: Session = Depends(get_db)) -> dict:
-    noticia = db.get(Noticia, noticia_id)
+def atualizar_noticia(
+    noticia_id: int,
+    payload: NoticiaPatch,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+) -> dict:
+    uid = user_id_de(usuario)
+    noticia = db.scalars(select(Noticia).where(Noticia.id == noticia_id, Noticia.user_id == uid)).first()
     if noticia is None:
         raise HTTPException(status_code=404, detail="Notícia não encontrada")
     data = payload.model_dump(exclude_none=True)
     if "status" in data and data["status"] not in STATUS_NOTICIA:
         raise HTTPException(status_code=422, detail=f"Status inválido. Use: {', '.join(STATUS_NOTICIA)}")
     for key, value in data.items():
-        setattr(noticia, key, value)
+        # user_id nunca vem do payload: muda de dono é privilégio do servidor
+        if key != "user_id":
+            setattr(noticia, key, value)
     db.commit()
     db.refresh(noticia)
     return {

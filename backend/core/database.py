@@ -34,6 +34,8 @@ class Blog(Base):
     __tablename__ = "blogs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Multi-tenancy: dono do registo (e-mail do utilizador = `sub` do JWT).
+    user_id: Mapped[str] = mapped_column(String(200), default="", index=True)
     nome: Mapped[str] = mapped_column(String(200))
     tema: Mapped[str] = mapped_column(String(50), default="geral")
     regiao: Mapped[str] = mapped_column(String(100), default="Brasil")
@@ -48,6 +50,7 @@ class Noticia(Base):
     __tablename__ = "noticias"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(200), default="", index=True)
     blog_id: Mapped[int] = mapped_column(ForeignKey("blogs.id"), index=True)
     titulo: Mapped[str] = mapped_column(String(300), default="")
     corpo: Mapped[str] = mapped_column(Text, default="")
@@ -75,6 +78,8 @@ class Visto(Base):
 class Configuracao(Base):
     __tablename__ = "configuracoes"
 
+    # Chave composta: cada utilizador tem o seu próprio conjunto de settings.
+    user_id: Mapped[str] = mapped_column(String(200), primary_key=True, default="")
     chave: Mapped[str] = mapped_column(String(100), primary_key=True)
     valor: Mapped[str] = mapped_column(Text, default="")
 
@@ -107,8 +112,10 @@ class Log(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
-    _migrate()
+    # o utilizador padrão tem de existir ANTES da migração: os dados antigos
+    # são atribuídos ao primeiro utilizador (regra de multi-tenancy).
     _criar_usuario_padrao()
+    _migrate()
 
 
 # Utilizador local padrão — criado só no primeiro arranque. A senha inicial
@@ -137,13 +144,35 @@ def _criar_usuario_padrao() -> None:
         db.close()
 
 
+def _primeiro_utilizador_email() -> str:
+    """E-mail do primeiro utilizador — dono dos dados anteriores ao multi-tenant."""
+    from sqlalchemy import select
+
+    db = SessionLocal()
+    try:
+        usuario = db.scalars(select(Usuario).order_by(Usuario.id)).first()
+        return usuario.email if usuario is not None else USUARIO_PADRAO_EMAIL
+    finally:
+        db.close()
+
+
 def _migrate() -> None:
-    """Migrações leves para bancos existentes (SQLite)."""
+    """Migrações leves para bancos existentes (SQLite).
+
+    Multi-tenancy: adiciona ``user_id`` a blogs/noticias e transforma a PK de
+    ``configuracoes`` em composta ``(user_id, chave)`` — o SQLite não permite
+    ``ALTER TABLE ADD COLUMN ... PRIMARY KEY``, por isso a tabela é
+    reconstruída. No fim, os registos antigos são atribuídos ao primeiro
+    utilizador, para que ninguém perca o histórico ao actualizar.
+    """
     if not DB_URL.startswith("sqlite"):
         return
     from sqlalchemy import text
 
+    dono = _primeiro_utilizador_email()
+
     with engine.connect() as conn:
+        # --- noticias: colunas antigas + user_id ---
         colunas = [row[1] for row in conn.execute(text("PRAGMA table_info(noticias)"))]
         for coluna, ddl in (
             ("fonte_url", "VARCHAR(600) DEFAULT ''"),
@@ -152,6 +181,33 @@ def _migrate() -> None:
         ):
             if coluna not in colunas:
                 conn.execute(text(f"ALTER TABLE noticias ADD COLUMN {coluna} {ddl}"))
+        if "user_id" not in colunas:
+            conn.execute(text("ALTER TABLE noticias ADD COLUMN user_id VARCHAR(200) DEFAULT ''"))
+        conn.execute(text("UPDATE noticias SET user_id = :dono WHERE user_id = '' OR user_id IS NULL"), {"dono": dono})
+
+        # --- blogs: user_id ---
+        colunas_blogs = [row[1] for row in conn.execute(text("PRAGMA table_info(blogs)"))]
+        if "user_id" not in colunas_blogs:
+            conn.execute(text("ALTER TABLE blogs ADD COLUMN user_id VARCHAR(200) DEFAULT ''"))
+        conn.execute(text("UPDATE blogs SET user_id = :dono WHERE user_id = '' OR user_id IS NULL"), {"dono": dono})
+
+        # --- configuracoes: PK composta (user_id, chave) ---
+        colunas_conf = [row[1] for row in conn.execute(text("PRAGMA table_info(configuracoes)"))]
+        if "user_id" not in colunas_conf:
+            conn.execute(text(
+                "CREATE TABLE configuracoes_nova ("
+                "user_id VARCHAR(200) NOT NULL DEFAULT '', "
+                "chave VARCHAR(100) NOT NULL, "
+                "valor TEXT DEFAULT '', "
+                "PRIMARY KEY (user_id, chave))"
+            ))
+            conn.execute(text(
+                "INSERT INTO configuracoes_nova (user_id, chave, valor) "
+                "SELECT :dono, chave, valor FROM configuracoes"
+            ), {"dono": dono})
+            conn.execute(text("DROP TABLE configuracoes"))
+            conn.execute(text("ALTER TABLE configuracoes_nova RENAME TO configuracoes"))
+
         conn.commit()
 
 
